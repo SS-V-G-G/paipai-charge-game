@@ -51,7 +51,7 @@ AI选择由房间的 `botSeed`、回合编号和策略版本共同确定。每�
 设置 `DATABASE_URL` 后，服务器会自动创建 `training_games` 表。每局完成时保存规则版本、AI版本、匿名座位、随机种子、逐回合动作、最终状态和胜负。数据库不保存昵称、房间码、重连凭证或IP地址；数据库暂时不可用时不会影响正常游戏。
 
 - `GET /api/training/stats`：返回已保存对局数、总回合数和数据库实际占用。
-- `GET /api/training/diagnostics?card=contempt&mode=human-vs-bot`：读取包含指定卡牌的匿名回放，用于规则诊断。
+- `GET /api/training/diagnostics?card=contempt&mode=human-vs-bot`：读取包含指定卡牌的匿名回放；也可使用 `outcome=draw` 筛选平局。
 - `npm run export:training`：读取 `DATABASE_URL` 并将训练记录以 JSONL 输出到标准输出。
 - Render Blueprint 会创建免费的 `paipai-charge-training-db` 并注入内部连接地址。
 

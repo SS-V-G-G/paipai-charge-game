@@ -191,7 +191,12 @@ export async function trainingStats() {
   }
 }
 
-export async function trainingGamesWithCard(cardId: CardId, mode: RoomState["mode"] | null, limit = 50) {
+export async function trainingGameDiagnostics(
+  cardId: CardId | null,
+  mode: RoomState["mode"] | null,
+  outcome: "draw" | null,
+  limit = 50,
+) {
   if (!pool || !ready) return [];
   const result = await pool.query<{
     id: string;
@@ -204,15 +209,16 @@ export async function trainingGamesWithCard(cardId: CardId, mode: RoomState["mod
     `SELECT id, completed_at, rules_version, bot_strategy_version, outcome, replay
     FROM training_games AS game
     WHERE ($1::text IS NULL OR game.room_mode = $1)
-      AND EXISTS (
+      AND ($2::text IS NULL OR game.outcome = $2)
+      AND ($3::text IS NULL OR EXISTS (
         SELECT 1
         FROM jsonb_array_elements(game.replay->'rounds') AS round_record,
              jsonb_array_elements(round_record->'actions') AS action_record
-        WHERE action_record->>'cardId' = $2
-      )
+        WHERE action_record->>'cardId' = $3
+      ))
     ORDER BY completed_at DESC
-    LIMIT $3`,
-    [mode, cardId, Math.max(1, Math.min(limit, 100))],
+    LIMIT $4`,
+    [mode, outcome, cardId, Math.max(1, Math.min(limit, 100))],
   );
   return result.rows.map((row) => ({
     id: row.id,
