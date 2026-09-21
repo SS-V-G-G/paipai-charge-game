@@ -6,7 +6,7 @@ import { Server, type Socket } from "socket.io";
 import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
-import { databaseHealth, initializeDatabase, recordCompletedGame, trainingStats } from "./database.js";
+import { databaseHealth, initializeDatabase, recordCompletedGame, trainingGamesWithCard, trainingStats } from "./database.js";
 import type {
   ClientMessage,
   BotDifficulty,
@@ -321,6 +321,18 @@ app.get("/api/rooms/:code", (request, response) => {
 
 app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size, database: databaseHealth() }));
 app.get("/api/training/stats", async (_request, response) => response.json(await trainingStats()));
+app.get("/api/training/diagnostics", async (request, response) => {
+  const cardId = String(request.query.card ?? "");
+  if (!(cardId in CARD_DEFINITIONS)) return response.status(400).json({ error: "未知卡牌" });
+  const requestedMode = String(request.query.mode ?? "");
+  const mode = requestedMode === "human-vs-bot" || requestedMode === "multiplayer" ? requestedMode : null;
+  const limit = Number(request.query.limit ?? 50);
+  return response.json({
+    cardId,
+    mode,
+    games: await trainingGamesWithCard(cardId as CardId, mode, Number.isFinite(limit) ? limit : 50),
+  });
+});
 
 io.on("connection", (socket) => {
   const roomCode = String(socket.handshake.auth.roomCode ?? "").trim().toUpperCase();

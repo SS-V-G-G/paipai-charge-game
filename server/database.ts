@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import type { CardId } from "../shared/cards.js";
 import { RULES_VERSION } from "../shared/engine.js";
 import type { RoomState } from "../shared/types.js";
 
@@ -162,18 +163,63 @@ export function databaseHealth() {
 }
 
 export async function trainingStats() {
-  if (!pool || !ready) return { ...databaseHealth(), games: 0, rounds: 0 };
+  if (!pool || !ready) return { ...databaseHealth(), games: 0, rounds: 0, databaseBytes: 0, trainingTableBytes: 0 };
   try {
-    const result = await pool.query<{ games: string; rounds: string }>(
-      "SELECT COUNT(*) AS games, COALESCE(SUM(round_count), 0) AS rounds FROM training_games",
+    const result = await pool.query<{
+      games: string;
+      rounds: string;
+      database_bytes: string;
+      training_table_bytes: string;
+    }>(
+      `SELECT
+        COUNT(*) AS games,
+        COALESCE(SUM(round_count), 0) AS rounds,
+        pg_database_size(current_database()) AS database_bytes,
+        pg_total_relation_size('training_games') AS training_table_bytes
+      FROM training_games`,
     );
     return {
       ...databaseHealth(),
       games: Number(result.rows[0]?.games ?? 0),
       rounds: Number(result.rows[0]?.rounds ?? 0),
+      databaseBytes: Number(result.rows[0]?.database_bytes ?? 0),
+      trainingTableBytes: Number(result.rows[0]?.training_table_bytes ?? 0),
     };
   } catch (error) {
     lastError = error instanceof Error ? error.message : "统计查询失败";
-    return { ...databaseHealth(), games: 0, rounds: 0 };
+    return { ...databaseHealth(), games: 0, rounds: 0, databaseBytes: 0, trainingTableBytes: 0 };
   }
+}
+
+export async function trainingGamesWithCard(cardId: CardId, mode: RoomState["mode"] | null, limit = 50) {
+  if (!pool || !ready) return [];
+  const result = await pool.query<{
+    id: string;
+    completed_at: Date;
+    rules_version: string;
+    bot_strategy_version: string;
+    outcome: string;
+    replay: TrainingReplay;
+  }>(
+    `SELECT id, completed_at, rules_version, bot_strategy_version, outcome, replay
+    FROM training_games AS game
+    WHERE ($1::text IS NULL OR game.room_mode = $1)
+      AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(game.replay->'rounds') AS round_record,
+             jsonb_array_elements(round_record->'actions') AS action_record
+        WHERE action_record->>'cardId' = $2
+      )
+    ORDER BY completed_at DESC
+    LIMIT $3`,
+    [mode, cardId, Math.max(1, Math.min(limit, 100))],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    completedAt: row.completed_at,
+    rulesVersion: row.rules_version,
+    botStrategyVersion: row.bot_strategy_version,
+    outcome: row.outcome,
+    replay: row.replay,
+  }));
 }
