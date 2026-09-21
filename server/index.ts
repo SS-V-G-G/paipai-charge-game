@@ -6,7 +6,6 @@ import { Server, type Socket } from "socket.io";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
 import type {
-  ChoiceRequest,
   ClientMessage,
   PublicRoomState,
   RoomState,
@@ -38,8 +37,6 @@ class GameRoom {
   readonly code: string;
   state: RoomState;
   private submissions = new Map<string, SubmittedAction>();
-  private pendingChoices = new Map<string, ChoiceRequest>();
-  private shootTargets: Record<string, string | undefined> = {};
   private timer: NodeJS.Timeout | null = null;
 
   constructor(code: string) {
@@ -106,9 +103,6 @@ class GameRoom {
       case "submit":
         this.submitAction(playerId, message.roundId, message.cardId, message.targetIds);
         break;
-      case "postRevealChoice":
-        this.submitChoice(playerId, message.requestId, message.targetIds);
-        break;
       case "playAgain":
         this.returnToLobby(playerId);
         break;
@@ -118,8 +112,6 @@ class GameRoom {
   sendInitial(socket: Socket, playerId: string) {
     this.sendSocket(socket, { type: "welcome", playerId, roomCode: this.code });
     this.sendSocket(socket, { type: "state", state: this.publicState() });
-    const request = this.pendingChoices.get(playerId);
-    if (request) this.sendSocket(socket, { type: "choiceRequired", request });
   }
 
   private toggleReady(playerId: string) {
@@ -145,8 +137,6 @@ class GameRoom {
     this.state.events = [];
     this.state.winnerIds = [];
     this.submissions.clear();
-    this.pendingChoices.clear();
-    this.shootTargets = {};
     this.schedule("selecting", 60_000);
     this.broadcast();
   }
@@ -169,49 +159,14 @@ class GameRoom {
     this.clearTimer();
     const actions = [...this.submissions.values()];
     this.state.revealedActions = actions.map((action) => ({ ...action }));
-    const flowerPlayers = actions.filter((action) => action.cardId === "flower").map((action) => action.playerId);
-    const shooters = actions.filter((action) => action.cardId === "shoot");
-    this.pendingChoices.clear();
-    this.shootTargets = {};
-
-    for (const shooter of shooters) {
-      const options = flowerPlayers.filter((id) => id !== shooter.playerId);
-      if (options.length === 0) continue;
-      const request: ChoiceRequest = {
-        requestId: `shoot-${this.state.round}-${shooter.playerId}`,
-        type: "shoot-target",
-        options,
-      };
-      this.pendingChoices.set(shooter.playerId, request);
-      this.sendPlayer(shooter.playerId, { type: "choiceRequired", request });
-    }
-
-    if (this.pendingChoices.size > 0) {
-      this.state.phase = "postReveal";
-      this.schedule("postReveal", 15_000);
-      this.broadcast();
-      return;
-    }
     this.resolveNow();
-  }
-
-  private submitChoice(playerId: string, requestId: string, targetIds: string[]) {
-    if (this.state.phase !== "postReveal") throw new Error("当前不需要公开后选择");
-    const request = this.pendingChoices.get(playerId);
-    if (!request || request.requestId !== requestId) throw new Error("选择请求已经失效");
-    if (targetIds.length !== 1 || !request.options.includes(targetIds[0])) throw new Error("请选择一个合法目标");
-    this.shootTargets[playerId] = targetIds[0];
-    this.pendingChoices.delete(playerId);
-    if (this.pendingChoices.size === 0) this.resolveNow();
   }
 
   private resolveNow() {
     this.clearTimer();
     this.state.phase = "resolving";
-    this.state = resolveRound(this.state, [...this.submissions.values()], this.shootTargets);
+    this.state = resolveRound(this.state, [...this.submissions.values()]);
     this.submissions.clear();
-    this.pendingChoices.clear();
-    this.shootTargets = {};
     if (this.state.phase === "selecting") this.schedule("selecting", 60_000);
     this.broadcast();
   }
@@ -230,24 +185,19 @@ class GameRoom {
     this.broadcast();
   }
 
-  private schedule(phase: "selecting" | "postReveal", delay: number) {
+  private schedule(phase: "selecting", delay: number) {
     this.clearTimer();
     this.state.deadlineAt = Date.now() + delay;
     this.timer = setTimeout(() => {
       if (this.state.phase !== phase) return;
-      if (phase === "selecting") {
-        const fallback: CardId = this.state.astrologyRemaining > 0 ? "small_defense" : "charge";
-        for (const player of this.state.players.filter((item) => item.alive)) {
-          if (!this.submissions.has(player.id)) {
-            this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
-            this.state.submittedPlayerIds.push(player.id);
-          }
+      const fallback: CardId = this.state.astrologyRemaining > 0 ? "small_defense" : "charge";
+      for (const player of this.state.players.filter((item) => item.alive)) {
+        if (!this.submissions.has(player.id)) {
+          this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
+          this.state.submittedPlayerIds.push(player.id);
         }
-        this.beginReveal();
-      } else {
-        for (const [id, request] of this.pendingChoices) this.shootTargets[id] = request.options[0];
-        this.resolveNow();
       }
+      this.beginReveal();
     }, delay);
   }
 
@@ -266,10 +216,6 @@ class GameRoom {
 
   private sendSocket(socket: Socket, message: ServerMessage) {
     socket.emit("game:message", message);
-  }
-
-  private sendPlayer(playerId: string, message: ServerMessage) {
-    io.to(`player:${playerId}`).emit("game:message", message);
   }
 
   broadcast() {

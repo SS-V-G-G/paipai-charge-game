@@ -1,6 +1,6 @@
 import type { CardId, LimitedCardId } from "./cards.js";
 
-export type GamePhase = "lobby" | "selecting" | "postReveal" | "resolving" | "finished";
+export type GamePhase = "lobby" | "selecting" | "resolving" | "finished";
 
 export interface PlayerState {
   id: string;
@@ -34,7 +34,7 @@ export interface PublicAction {
 
 export interface GameEvent {
   id: string;
-  type: "system" | "card" | "resource" | "blocked" | "reflected" | "damage" | "death";
+  type: "system" | "card" | "resource" | "clash" | "break" | "blocked" | "reflected" | "damage" | "death";
   text: string;
   sourceId?: string;
   targetIds?: string[];
@@ -59,21 +59,13 @@ export interface PublicRoomState extends Omit<RoomState, "players"> {
   players: PlayerState[];
 }
 
-export interface ChoiceRequest {
-  requestId: string;
-  type: "shoot-target";
-  options: string[];
-}
-
 export type ClientMessage =
   | { type: "ready" }
   | { type: "startGame" }
   | { type: "submit"; roundId: number; cardId: CardId; targetIds: string[] }
-  | { type: "postRevealChoice"; requestId: string; targetIds: string[] }
   | { type: "playAgain" };
 
 export type ServerMessage =
   | { type: "welcome"; playerId: string; roomCode: string }
   | { type: "state"; state: PublicRoomState }
-  | { type: "choiceRequired"; request: ChoiceRequest }
   | { type: "error"; code: string; message: string };

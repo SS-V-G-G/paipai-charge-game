@@ -1,5 +1,5 @@
 export type CardGroup = "B" | "C" | "D";
-export type TargetMode = "none" | "one-other" | "two-others" | "all-others" | "post-reveal-flower";
+export type TargetMode = "none" | "one-other" | "two-others" | "all-others";
 
 export interface CardDefinition {
   id: string;
@@ -19,7 +19,7 @@ export const CARD_DEFINITIONS = {
   flying_knife: { id: "flying_knife", name: "飞刀", group: "B", cost: 3, targetMode: "one-other", damage: 3, description: "造成3点伤害，可以破大防，但不能破小反。", tags: ["attack", "break-big-defense"] },
   stab: { id: "stab", name: "戳", group: "B", cost: 4, targetMode: "one-other", damage: 4, description: "造成4点伤害，可以破大防，但不能破小反。", tags: ["attack", "break-big-defense"] },
   bull: { id: "bull", name: "牛", group: "B", cost: 5, targetMode: "one-other", damage: 5, description: "对一名玩家造成5点伤害。", tags: ["attack"] },
-  big_gun: { id: "big_gun", name: "大枪", group: "B", cost: 6, targetMode: "one-other", damage: 6, description: "对一名玩家造成6点伤害。", tags: ["attack"] },
+  big_gun: { id: "big_gun", name: "大枪", group: "B", cost: 6, targetMode: "one-other", damage: 6, description: "造成6点伤害；可破抬枪无敌，破除后仍造成原本的6点伤害。", tags: ["attack", "break-raise-gun"] },
   shotgun: { id: "shotgun", name: "散弹", group: "B", cost: 5, targetMode: "all-others", damage: 1, description: "对所有其他玩家各造成1点伤害。", tags: ["attack", "golden-rooster-hit"] },
   slash: { id: "slash", name: "劈", group: "B", cost: 7, targetMode: "one-other", damage: 7, description: "对一名玩家造成7点伤害。", tags: ["attack", "golden-rooster-hit"] },
   backhand_stab: { id: "backhand_stab", name: "反手戳", group: "B", cost: 8, targetMode: "one-other", damage: 8, description: "造成8点伤害；没有特殊破防标签。", tags: ["attack"] },
@@ -29,14 +29,14 @@ export const CARD_DEFINITIONS = {
   big_defense: { id: "big_defense", name: "大防", group: "B", cost: 1, targetMode: "none", description: "抵挡不高于6点的伤害；飞刀和戳可破大防。", tags: ["defense"] },
   small_reflect: { id: "small_reflect", name: "小反", group: "B", cost: 2, targetMode: "none", description: "反弹1至5点伤害；飞刀和戳会被正常反弹。", tags: ["reflect"] },
   big_reflect: { id: "big_reflect", name: "大反", group: "B", cost: 5, targetMode: "none", description: "反弹伤害，包括反鄙视的无限伤害。", tags: ["reflect"] },
-  raise_gun: { id: "raise_gun", name: "抬枪", group: "B", cost: 3, targetMode: "none", description: "获得一张蓄费为0的免费大枪。" },
+  raise_gun: { id: "raise_gun", name: "抬枪", group: "B", cost: 3, targetMode: "none", description: "本轮无敌，并获得一张蓄费为0的免费大枪；该无敌可被大枪破除。", tags: ["invincible"] },
   astrology: { id: "astrology", name: "占星术", group: "B", cost: 5, targetMode: "none", description: "本轮无敌；后续5轮全场不能出蓄，重复使用叠加时长。", tags: ["invincible"] },
 
   rub: { id: "rub", name: "搓", group: "C", cost: 0, limit: 1, targetMode: "none", description: "获得2蓄，没有防御效果。" },
   flower: { id: "flower", name: "花", group: "C", cost: 0, limit: 2, targetMode: "none", description: "本轮无敌并获得2蓄；被射击碎时整张牌失效。", tags: ["invincible"] },
-  shoot: { id: "shoot", name: "射", group: "C", cost: 0, limit: 1, targetMode: "post-reveal-flower", description: "公开后选择一名本轮使用花的玩家，击碎其花。" },
+  shoot: { id: "shoot", name: "射", group: "C", cost: 0, limit: 1, targetMode: "one-other", description: "出牌时预先指定一名玩家；若其本轮出花，则直接击杀。亮牌后不能更换目标。" },
   push: { id: "push", name: "推", group: "C", cost: 0, limit: 1, targetMode: "none", description: "本轮无敌。", tags: ["invincible"] },
-  praise: { id: "praise", name: "赞", group: "C", cost: 0, limit: 1, targetMode: "one-other", description: "本轮自己和目标无敌，只有鄙视可以击杀。", tags: ["invincible"] },
+  praise: { id: "praise", name: "赞", group: "C", cost: 0, limit: 1, targetMode: "one-other", description: "本轮自己和目标无敌，只有鄙视可以击杀；双方各获得1蓄。", tags: ["invincible"] },
   golden_rooster: { id: "golden_rooster", name: "金鸡独立", group: "C", cost: 0, limit: 2, targetMode: "none", description: "下一轮进入金鸡独立状态，仅散弹、劈、双劈能够造成伤害。" },
 
   charge: { id: "charge", name: "蓄", group: "D", cost: 0, targetMode: "none", description: "获得1蓄。" },
@@ -44,7 +44,7 @@ export const CARD_DEFINITIONS = {
   small_defense: { id: "small_defense", name: "小防", group: "D", cost: 0, targetMode: "none", description: "抵挡不高于4点的伤害。", tags: ["defense"] },
   contempt: { id: "contempt", name: "鄙视", group: "D", cost: 0, targetMode: "one-other", description: "清空自己生命和目标蓄；场上有赞时改为击杀所有赞的参与者。" },
 
-  free_big_gun: { id: "free_big_gun", name: "免费大枪", group: "D", cost: 0, targetMode: "one-other", damage: 6, description: "由抬枪获得，用后消耗一张。", tags: ["attack", "derived"] },
+  free_big_gun: { id: "free_big_gun", name: "免费大枪", group: "D", cost: 0, targetMode: "one-other", damage: 6, description: "由抬枪获得，用后消耗一张；可破抬枪无敌并造成原本的6点伤害。", tags: ["attack", "derived", "break-raise-gun"] },
 } as const satisfies Record<string, Omit<CardDefinition, "id"> & { id: string }>;
 
 export type CardId = keyof typeof CARD_DEFINITIONS;

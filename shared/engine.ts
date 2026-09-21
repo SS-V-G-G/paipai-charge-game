@@ -12,7 +12,7 @@ function event(
   amount?: number | "infinite",
 ) {
   events.push({
-    id: `${Date.now()}-${events.length}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `event-${events.length + 1}`,
     type,
     text,
     sourceId,
@@ -82,7 +82,7 @@ export function validateAction(
 
   if (card.targetMode === "one-other" && uniqueTargets.length !== 1) return "请选择一名目标";
   if (card.targetMode === "two-others" && uniqueTargets.length !== 2) return "请选择两名不同目标";
-  if (["none", "all-others", "post-reveal-flower"].includes(card.targetMode) && uniqueTargets.length !== 0) {
+  if (["none", "all-others"].includes(card.targetMode) && uniqueTargets.length !== 0) {
     return "这张牌不应在提交时指定目标";
   }
   if (card.targetMode === "two-others" && aliveOthers.length < 2) return "场上没有足够的合法目标";
@@ -100,9 +100,12 @@ interface PendingDamage {
 export function resolveRound(
   current: RoomState,
   submitted: SubmittedAction[],
-  shootTargets: Record<string, string | undefined> = {},
 ): RoomState {
   const state = copy(current);
+  const playerOrder = new Map(state.players.map((player, index) => [player.id, index]));
+  submitted = submitted.slice().sort(
+    (left, right) => (playerOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (playerOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER),
+  );
   const events: GameEvent[] = [];
   const actions = new Map(submitted.map((action) => [action.playerId, action]));
   const players = new Map(state.players.map((player) => [player.id, player]));
@@ -120,34 +123,49 @@ export function resolveRound(
     event(events, "card", `${player.name}使用了${card.name}`, player.id, action.targetIds);
   }
 
-  const flowers = new Set(submitted.filter((action) => action.cardId === "flower").map((action) => action.playerId));
-  const brokenFlowers = new Set<string>();
-  for (const action of submitted.filter((item) => item.cardId === "shoot")) {
-    const targetId = shootTargets[action.playerId];
-    if (targetId && flowers.has(targetId)) {
-      brokenFlowers.add(targetId);
-      event(events, "blocked", `${players.get(action.playerId)?.name}击碎了${players.get(targetId)?.name}的花`, action.playerId, [targetId]);
-    }
-  }
-
-  const invincible = new Set<string>();
   const praiseParticipants = new Set<string>();
   for (const action of submitted) {
-    if (action.cardId === "flower" && !brokenFlowers.has(action.playerId)) invincible.add(action.playerId);
-    if (action.cardId === "push" || action.cardId === "astrology") invincible.add(action.playerId);
     if (action.cardId === "praise") {
-      invincible.add(action.playerId);
       praiseParticipants.add(action.playerId);
       for (const targetId of action.targetIds) {
-        invincible.add(targetId);
         praiseParticipants.add(targetId);
       }
     }
   }
 
+  const flowers = new Set(submitted.filter((action) => action.cardId === "flower").map((action) => action.playerId));
+  const brokenFlowers = new Set<string>();
+  const shootFlowerVictims = new Set<string>();
+  for (const action of submitted.filter((item) => item.cardId === "shoot")) {
+    const targetId = action.targetIds[0];
+    if (!targetId || !flowers.has(targetId)) continue;
+    if (praiseParticipants.has(targetId)) {
+      event(events, "blocked", `${players.get(targetId)?.name}受到赞的保护，射无法将其击杀`, action.playerId, [targetId]);
+      continue;
+    }
+    brokenFlowers.add(targetId);
+    shootFlowerVictims.add(targetId);
+    event(events, "damage", `${players.get(action.playerId)?.name}射中了${players.get(targetId)?.name}的花，直接将其击杀`, action.playerId, [targetId], "infinite");
+  }
+
+  const invincible = new Set<string>();
+  const raiseGunPlayers = new Set<string>();
+  for (const action of submitted) {
+    if (action.cardId === "flower" && !brokenFlowers.has(action.playerId)) invincible.add(action.playerId);
+    if (action.cardId === "push" || action.cardId === "astrology") invincible.add(action.playerId);
+    if (action.cardId === "raise_gun") {
+      invincible.add(action.playerId);
+      raiseGunPlayers.add(action.playerId);
+    }
+    if (action.cardId === "praise") {
+      invincible.add(action.playerId);
+      for (const targetId of action.targetIds) invincible.add(targetId);
+    }
+  }
+
   const chargeDelta = new Map<string, number>();
   const clearCharge = new Set<string>();
-  const clearLife = new Set<string>();
+  const clearLife = new Set<string>(shootFlowerVictims);
   let astrologyAdded = 0;
   const addCharge = (playerId: string, amount: number) => {
     chargeDelta.set(playerId, (chargeDelta.get(playerId) ?? 0) + amount);
@@ -168,6 +186,10 @@ export function resolveRound(
       case "raise_gun":
         player.freeBigGuns += 1;
         event(events, "resource", `${player.name}获得了一张免费大枪`, player.id);
+        break;
+      case "praise":
+        addCharge(player.id, 1);
+        for (const targetId of action.targetIds) addCharge(targetId, 1);
         break;
       case "astrology":
         astrologyAdded += 5;
@@ -201,10 +223,44 @@ export function resolveRound(
     }
   }
 
+  const attackActions = submitted.filter((action) => {
+    const card = CARD_DEFINITIONS[action.cardId] as CardDefinition;
+    return card.damage !== undefined && card.tags?.includes("attack");
+  });
+  const suppressedAttackers = new Set<string>();
+  const numericDamage = (action: SubmittedAction) => {
+    const amount = (CARD_DEFINITIONS[action.cardId] as CardDefinition).damage;
+    return amount === "infinite" ? Number.POSITIVE_INFINITY : amount ?? 0;
+  };
+  for (let leftIndex = 0; leftIndex < attackActions.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < attackActions.length; rightIndex += 1) {
+      const left = attackActions[leftIndex];
+      const right = attackActions[rightIndex];
+      if (!left.targetIds.includes(right.playerId) || !right.targetIds.includes(left.playerId)) continue;
+      const leftDamage = numericDamage(left);
+      const rightDamage = numericDamage(right);
+      const leftCard = CARD_DEFINITIONS[left.cardId] as CardDefinition;
+      const rightCard = CARD_DEFINITIONS[right.cardId] as CardDefinition;
+      if (leftDamage === rightDamage) {
+        suppressedAttackers.add(left.playerId);
+        suppressedAttackers.add(right.playerId);
+        event(events, "clash", `${players.get(left.playerId)?.name}的${leftCard.name}与${players.get(right.playerId)?.name}的${rightCard.name}伤害相同，双方攻击抵消`, left.playerId, [right.playerId]);
+      } else {
+        const winner = leftDamage > rightDamage ? left : right;
+        const loser = winner === left ? right : left;
+        const winnerCard = CARD_DEFINITIONS[winner.cardId] as CardDefinition;
+        const loserCard = CARD_DEFINITIONS[loser.cardId] as CardDefinition;
+        suppressedAttackers.add(loser.playerId);
+        event(events, "clash", `${players.get(winner.playerId)?.name}的${winnerCard.name}压掉了${players.get(loser.playerId)?.name}的${loserCard.name}`, winner.playerId, [loser.playerId]);
+      }
+    }
+  }
+
   const pendingDamage: PendingDamage[] = [];
   for (const action of submitted) {
     const card = CARD_DEFINITIONS[action.cardId] as CardDefinition;
     if (card.damage === undefined) continue;
+    if (suppressedAttackers.has(action.playerId)) continue;
     const targets = card.targetMode === "all-others"
       ? state.players.filter((player) => player.alive && player.id !== action.playerId).map((player) => player.id)
       : action.targetIds;
@@ -224,6 +280,11 @@ export function resolveRound(
     const target = players.get(damage.targetId);
     if (!target?.alive) return true;
     if (invincible.has(target.id)) {
+      const sourceCard = damage.cardId === "reflection" ? undefined : CARD_DEFINITIONS[damage.cardId] as CardDefinition;
+      if (raiseGunPlayers.has(target.id) && sourceCard?.tags?.includes("break-raise-gun")) {
+        event(events, "break", `${players.get(damage.sourceId)?.name}用${sourceCard.name}破除了${target.name}的抬枪无敌`, damage.sourceId, [target.id], damage.amount);
+        return false;
+      }
       event(events, "blocked", `${target.name}处于无敌状态，免疫了伤害`, damage.sourceId, [target.id], damage.amount);
       return true;
     }

@@ -26,7 +26,7 @@ import {
   type CardGroup,
   type CardId,
 } from "../shared/cards.js";
-import type { ChoiceRequest, PublicRoomState, ServerMessage } from "../shared/types.js";
+import type { PublicRoomState, ServerMessage } from "../shared/types.js";
 
 const TOKEN_KEY = "paipai-charge-token";
 const NAME_KEY = "paipai-charge-name";
@@ -42,7 +42,6 @@ function getToken() {
 const phaseLabel = {
   lobby: "等待准备",
   selecting: "秘密出牌",
-  postReveal: "公开后选择",
   resolving: "正在结算",
   finished: "本局结束",
 } as const;
@@ -59,7 +58,6 @@ export default function App() {
   const [selectedCard, setSelectedCard] = useState<CardId | null>(null);
   const [targets, setTargets] = useState<string[]>([]);
   const [group, setGroup] = useState<"ALL" | CardGroup>("ALL");
-  const [choiceRequest, setChoiceRequest] = useState<ChoiceRequest | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
 
@@ -71,7 +69,6 @@ export default function App() {
   useEffect(() => {
     setSelectedCard(null);
     setTargets([]);
-    setChoiceRequest(null);
   }, [room?.round]);
 
   useEffect(() => () => {
@@ -123,8 +120,6 @@ export default function App() {
         location.hash = message.roomCode;
       } else if (message.type === "state") {
         setRoom(message.state);
-      } else if (message.type === "choiceRequired") {
-        setChoiceRequest(message.request);
       } else if (message.type === "error") {
         setError(message.message);
       }
@@ -207,7 +202,7 @@ export default function App() {
           <div className="brand-mark"><Bolt size={30} strokeWidth={2.5} /></div>
           <p className="eyebrow">同步回合制卡牌游戏</p>
           <h1>拍拍蓄</h1>
-          <p className="home-lead">秘密出牌，同时公开。看穿对手，再决定这一轮谁能活下来。</p>
+          <p className="home-lead">秘密出牌，同时公开。服务器确定性结算，同一局面与出牌可完全重放。</p>
 
           <label className="field-label" htmlFor="nickname">你的昵称</label>
           <input id="nickname" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={12} placeholder="输入昵称" />
@@ -348,19 +343,6 @@ export default function App() {
         </div>
       </section>
 
-      {choiceRequest && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="选择射的目标">
-          <section className="choice-modal">
-            <div className="brand-mark small-mark"><Swords size={22} /></div>
-            <p className="eyebrow">公开后操作</p>
-            <h2>选择要射碎的花</h2>
-            <div className="choice-list">
-              {choiceRequest.options.map((id) => <button key={id} className="secondary-button large" onClick={() => { send({ type: "postRevealChoice", requestId: choiceRequest.requestId, targetIds: [id] }); setChoiceRequest(null); }}>{room.players.find((player) => player.id === id)?.name}</button>)}
-            </div>
-          </section>
-        </div>
-      )}
-
       {rulesOpen && <RulesDrawer onClose={() => setRulesOpen(false)} />}
       {error && <button className="toast" onClick={() => setError("")}>{error}</button>}
     </main>
@@ -390,9 +372,12 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
       <aside className="rules-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="section-heading"><div><p className="eyebrow">快速参考</p><h2>基础规则</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <div className="rule-block"><Shield size={19} /><div><strong>防御</strong><p>小防挡不高于4点；大防挡不高于6点。飞刀、戳可破大防。</p></div></div>
+        <div className="rule-block"><Swords size={19} /><div><strong>攻击对撞</strong><p>两人互相攻击时，大伤害压掉小伤害；伤害相同则双方攻击抵消。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>反弹</strong><p>小反反弹1—5点，飞刀和戳不能破小反；大反可反弹反鄙视。</p></div></div>
-        <div className="rule-block"><Sparkles size={19} /><div><strong>特殊状态</strong><p>赞的双方本轮无敌，只有鄙视能击杀；金鸡独立只会受到散弹、劈、双劈伤害。</p></div></div>
+        <div className="rule-block"><Sparkles size={19} /><div><strong>特殊状态</strong><p>抬枪本轮无敌，但会被大枪破除并受到原伤害。赞的双方本轮无敌、各得1蓄，且只有鄙视能击杀。金鸡独立只会受到散弹、劈、双劈伤害。</p></div></div>
+        <div className="rule-block"><Swords size={19} /><div><strong>射</strong><p>出牌时必须预先指定目标；若目标本轮出花则直接击杀，亮牌后不能改选。</p></div></div>
         <div className="rule-block"><Bolt size={19} /><div><strong>占星术</strong><p>使用者本轮无敌，之后5轮全场不能出蓄，但仍可通过搓、花、拉获得蓄。</p></div></div>
+        <div className="rule-block"><Radio size={19} /><div><strong>完全可重放</strong><p>结算不使用随机数；相同初始状态、玩家顺序和出牌提交会产生完全相同的结果与事件顺序。</p></div></div>
         <button className="secondary-button large" onClick={onClose}><DoorOpen size={18} /> 返回牌局</button>
       </aside>
     </div>
