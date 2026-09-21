@@ -46,6 +46,7 @@ h1, h2, p { margin-top: 0; }
 .code-input { letter-spacing: .16em; font-weight: 800; text-transform: uppercase; }
 .error-message { margin: 14px 0 0; color: #ff8f88; font-size: .9rem; }
 .home-meta { margin-top: 28px; display: flex; justify-content: center; gap: 7px; color: var(--muted); font-size: .82rem; }
+.training-notice { margin: 12px 0 0; color: #78979b; font-size: .74rem; line-height: 1.55; text-align: center; }
 
 .app-shell { width: min(1220px, 100%); margin: 0 auto; min-height: 100vh; padding: 16px 20px 110px; }
 .topbar { position: sticky; top: 0; z-index: 20; min-height: 60px; display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 10px; padding: 8px 0; background: rgba(7,19,24,.88); backdrop-filter: blur(18px); }

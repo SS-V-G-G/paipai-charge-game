@@ -14,12 +14,14 @@
     "test": "vitest run",
     "smoke:bot": "node tests/smoke-bot.mjs",
     "self-play": "tsx scripts/self-play.ts",
+    "export:training": "tsx scripts/export-training.ts",
     "check": "tsc -b && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "express": "latest",
     "lucide-react": "latest",
+    "pg": "^8.23.0",
     "react": "latest",
     "react-dom": "latest",
     "socket.io": "latest",
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@types/express": "latest",
     "@types/node": "latest",
+    "@types/pg": "^8.23.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "concurrently": "latest",

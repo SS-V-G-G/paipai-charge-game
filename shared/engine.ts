@@ -2,6 +2,7 @@ import { CARD_DEFINITIONS, LIMITED_STARTING_USES, type CardDefinition, type Card
 import type { GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+export const RULES_VERSION = "2026-09-21.2";
 
 function event(
   events: GameEvent[],

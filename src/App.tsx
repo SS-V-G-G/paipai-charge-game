@@ -228,6 +228,7 @@ export default function App() {
           </div>
           {error && <p className="error-message">{error}</p>}
           <div className="home-meta"><Users size={16} /> 支持人机1v1及2—10人联机 · 无需注册</div>
+          <p className="training-notice">完成的对局会以匿名形式保存，用于训练和改进AI；不会保存昵称、重连凭证或IP地址。</p>
         </section>
       </main>
     );
@@ -388,6 +389,7 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
         <div className="rule-block"><Swords size={19} /><div><strong>射</strong><p>出牌时必须预先指定目标；若目标本轮出花则直接击杀，亮牌后不能改选。</p></div></div>
         <div className="rule-block"><Bolt size={19} /><div><strong>占星术</strong><p>使用者本轮无敌，之后5轮全场不能出蓄，但仍可通过搓、花、拉获得蓄。</p></div></div>
         <div className="rule-block"><Radio size={19} /><div><strong>完全可重放</strong><p>结算不使用随机数；相同初始状态、玩家顺序和出牌提交会产生完全相同的结果与事件顺序。</p></div></div>
+        <div className="rule-block"><Bot size={19} /><div><strong>匿名训练数据</strong><p>完成的对局会保存规则版本、AI版本、匿名座位、逐轮动作和胜负，用于离线训练AI；不保存昵称、重连凭证或IP。</p></div></div>
         <button className="secondary-button large" onClick={onClose}><DoorOpen size={18} /> 返回牌局</button>
       </aside>
     </div>

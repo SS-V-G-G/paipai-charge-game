@@ -6,6 +6,7 @@ import { Server, type Socket } from "socket.io";
 import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
+import { databaseHealth, initializeDatabase, recordCompletedGame, trainingStats } from "./database.js";
 import type {
   ClientMessage,
   BotDifficulty,
@@ -46,6 +47,7 @@ class GameRoom {
   private submissions = new Map<string, SubmittedAction>();
   private timer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
+  private gameId: string | null = null;
 
   constructor(code: string, mode: RoomMode, private readonly botDifficulty: BotDifficulty) {
     this.code = code;
@@ -170,6 +172,7 @@ class GameRoom {
     this.state.actionHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
+    this.gameId = crypto.randomUUID();
     this.submissions.clear();
     this.schedule("selecting", 60_000);
     this.queueBotMove();
@@ -203,6 +206,11 @@ class GameRoom {
     this.state.phase = "resolving";
     this.state = resolveRound(this.state, [...this.submissions.values()]);
     this.submissions.clear();
+    if (this.state.phase === "finished" && this.gameId) {
+      const completedGameId = this.gameId;
+      this.gameId = null;
+      void recordCompletedGame(completedGameId, this.state);
+    }
     if (this.state.phase === "selecting") {
       this.schedule("selecting", 60_000);
       this.queueBotMove();
@@ -225,6 +233,7 @@ class GameRoom {
     this.state.actionHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
+    this.gameId = null;
     this.clearBotTimer();
     this.broadcast();
   }
@@ -310,7 +319,8 @@ app.get("/api/rooms/:code", (request, response) => {
   return response.json({ roomCode: room.code, mode: room.state.mode, phase: room.state.phase, playerCount: room.state.players.length });
 });
 
-app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size }));
+app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size, database: databaseHealth() }));
+app.get("/api/training/stats", async (_request, response) => response.json(await trainingStats()));
 
 io.on("connection", (socket) => {
   const roomCode = String(socket.handshake.auth.roomCode ?? "").trim().toUpperCase();
@@ -365,6 +375,7 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const port = Number(process.env.PORT ?? 3001);
+await initializeDatabase();
 httpServer.listen(port, "0.0.0.0", () => {
   console.log(`拍拍蓄服务器已启动：http://localhost:${port}`);
 });

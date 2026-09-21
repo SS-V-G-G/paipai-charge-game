@@ -7,3 +7,13 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: paipai-charge-training-db
+          property: connectionString
+
+databases:
+  - name: paipai-charge-training-db
+    plan: free
+    databaseName: paipai_charge

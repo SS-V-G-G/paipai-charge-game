@@ -44,6 +44,16 @@ AI选择由房间的 `botSeed`、回合编号和策略版本共同确定。每�
 
 可以运行 `npm run self-play -- 100 100 normal normal` 进行100局、每局最多100回合的无人自博弈评估。该命令用于检查胜率、平均回合、超时率和常用牌，是后续训练策略参数的基线工具。
 
+## 匿名训练数据库
+
+设置 `DATABASE_URL` 后，服务器会自动创建 `training_games` 表。每局完成时保存规则版本、AI版本、匿名座位、随机种子、逐回合动作、最终状态和胜负。数据库不保存昵称、房间码、重连凭证或IP地址；数据库暂时不可用时不会影响正常游戏。
+
+- `GET /api/training/stats`：返回已保存对局数和总回合数。
+- `npm run export:training`：读取 `DATABASE_URL` 并将训练记录以 JSONL 输出到标准输出。
+- Render Blueprint 会创建免费的 `paipai-charge-training-db` 并注入内部连接地址。
+
+Render 免费 PostgreSQL 容量为1GB，创建30天后过期且没有备份。需要长期积累数据时，应在到期前导出JSONL、迁移到新数据库或升级数据库方案。
+
 运行联机冒烟测试前，需要先启动服务器。可通过 `TEST_SERVER_URL` 指定地址。
 
 ## 当前架构
