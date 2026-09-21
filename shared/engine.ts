@@ -1,5 +1,5 @@
 import { CARD_DEFINITIONS, LIMITED_STARTING_USES, type CardDefinition, type CardId } from "./cards.js";
-import type { GameEvent, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
+import type { GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -26,6 +26,7 @@ export function createFreshPlayer(
   name: string,
   reconnectToken: string,
   connected = true,
+  controller: PlayerController = "human",
 ): PlayerPrivateState {
   return {
     id,
@@ -36,6 +37,7 @@ export function createFreshPlayer(
     alive: true,
     ready: false,
     connected,
+    controller,
     remainingUses: { ...LIMITED_STARTING_USES },
     freeBigGuns: 0,
     goldenRoosterActive: false,
@@ -364,6 +366,10 @@ export function resolveRound(
   state.astrologyRemaining = Math.max(0, state.astrologyRemaining - 1) + astrologyAdded;
   state.events = events.slice(-80);
   state.revealedActions = submitted.map((action) => ({ ...action }));
+  state.actionHistory.push({
+    round: state.round,
+    actions: submitted.map((action) => ({ ...action, targetIds: [...action.targetIds] })),
+  });
   state.submittedPlayerIds = [];
 
   const survivors = state.players.filter((player) => player.alive);

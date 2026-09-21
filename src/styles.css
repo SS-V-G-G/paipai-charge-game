@@ -36,6 +36,9 @@ h1, h2, p { margin-top: 0; }
 .secondary-button { color: var(--white); background: #1a3a43; border: 1px solid #37616a; }
 .primary-button:hover:not(:disabled), .secondary-button:hover:not(:disabled) { transform: translateY(-1px); }
 .primary-button:disabled, .secondary-button:disabled { opacity: .4; cursor: not-allowed; }
+.home-mode-buttons { display: grid; gap: 10px; }
+.home-mode-buttons .primary-button { margin-top: 13px; }
+.ai-button { width: 100%; min-height: 48px; }
 .secondary-button.large, .primary-button.large { min-height: 54px; margin: 0; }
 .or { display: flex; align-items: center; gap: 12px; margin: 25px 0 14px; color: var(--muted); font-size: .8rem; }
 .or::before, .or::after { content: ""; height: 1px; flex: 1; background: var(--line); }

@@ -3,11 +3,14 @@ import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server, type Socket } from "socket.io";
+import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
 import type {
   ClientMessage,
+  BotDifficulty,
   PublicRoomState,
+  RoomMode,
   RoomState,
   ServerMessage,
   SubmittedAction,
@@ -33,16 +36,24 @@ function createCode(): string {
   return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
 }
 
+function seedFromCode(code: string): number {
+  return [...code].reduce((seed, character) => Math.imul(seed ^ character.charCodeAt(0), 16777619) >>> 0, 2166136261);
+}
+
 class GameRoom {
   readonly code: string;
   state: RoomState;
   private submissions = new Map<string, SubmittedAction>();
   private timer: NodeJS.Timeout | null = null;
+  private botTimer: NodeJS.Timeout | null = null;
 
-  constructor(code: string) {
+  constructor(code: string, mode: RoomMode, private readonly botDifficulty: BotDifficulty) {
     this.code = code;
     this.state = {
       roomCode: code,
+      mode,
+      botSeed: seedFromCode(code),
+      botStrategyVersion: BOT_STRATEGY_VERSION,
       hostId: "",
       phase: "lobby",
       round: 0,
@@ -51,6 +62,7 @@ class GameRoom {
       astrologyRemaining: 0,
       submittedPlayerIds: [],
       revealedActions: [],
+      actionHistory: [],
       events: [],
       winnerIds: [],
     };
@@ -60,10 +72,14 @@ class GameRoom {
     let player = this.state.players.find((item) => item.reconnectToken === token);
     if (!player) {
       if (this.state.phase !== "lobby") throw new Error("游戏已经开始");
+      if (this.state.mode === "human-vs-bot" && this.state.players.some((item) => item.controller === "human")) {
+        throw new Error("这是单人人机房间");
+      }
       if (this.state.players.length >= 10) throw new Error("房间已满");
       player = createFreshPlayer(crypto.randomUUID(), name.slice(0, 12), token);
       this.state.players.push(player);
       if (!this.state.hostId) this.state.hostId = player.id;
+      if (this.state.mode === "human-vs-bot") this.addBot();
     } else {
       player.connected = true;
       player.name = name.slice(0, 12);
@@ -71,12 +87,21 @@ class GameRoom {
     return player;
   }
 
+  private addBot() {
+    if (this.state.players.some((item) => item.controller === "bot")) return;
+    const bot = createFreshPlayer(`bot-${this.code}`, "基础AI", `bot:${this.code}`, true, "bot");
+    bot.ready = true;
+    bot.botDifficulty = this.botDifficulty;
+    this.state.players.push(bot);
+  }
+
   disconnect(playerId: string) {
     const player = this.state.players.find((item) => item.id === playerId);
     if (!player) return;
+    if (player.controller === "bot") return;
     const stillConnected = io.sockets.adapter.rooms.get(`player:${playerId}`)?.size ?? 0;
     player.connected = stillConnected > 0;
-    if (!player.connected && this.state.hostId === player.id) {
+    if (!player.connected && this.state.hostId === player.id && this.state.mode !== "human-vs-bot") {
       this.state.hostId = this.state.players.find((item) => item.connected)?.id ?? player.id;
     }
     this.broadcast();
@@ -86,7 +111,11 @@ class GameRoom {
         const current = this.state.players.find((item) => item.id === playerId);
         if (this.state.phase !== "lobby" || current?.connected) return;
         this.state.players = this.state.players.filter((item) => item.id !== playerId);
-        if (this.state.hostId === playerId) this.state.hostId = this.state.players.find((item) => item.connected)?.id ?? "";
+        if (this.state.hostId === playerId) {
+          this.state.hostId = this.state.mode === "human-vs-bot"
+            ? ""
+            : this.state.players.find((item) => item.connected)?.id ?? "";
+        }
         this.broadcast();
       }, 60_000);
     }
@@ -118,6 +147,7 @@ class GameRoom {
     if (this.state.phase !== "lobby") throw new Error("当前不能更改准备状态");
     const player = this.state.players.find((item) => item.id === playerId);
     if (!player) throw new Error("玩家不存在");
+    if (player.controller === "bot") throw new Error("不能操作AI玩家");
     player.ready = !player.ready;
     this.broadcast();
   }
@@ -128,16 +158,21 @@ class GameRoom {
     if (this.state.players.length < 2) throw new Error("至少需要2名玩家");
     if (this.state.players.some((player) => !player.ready)) throw new Error("还有玩家没有准备");
 
-    this.state.players = this.state.players.map(resetPlayerForGame);
+    this.state.players = this.state.players.map((player) => ({
+      ...resetPlayerForGame(player),
+      ready: player.controller === "bot",
+    }));
     this.state.phase = "selecting";
     this.state.round = 1;
     this.state.astrologyRemaining = 0;
     this.state.submittedPlayerIds = [];
     this.state.revealedActions = [];
+    this.state.actionHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
     this.submissions.clear();
     this.schedule("selecting", 60_000);
+    this.queueBotMove();
     this.broadcast();
   }
 
@@ -157,6 +192,7 @@ class GameRoom {
 
   private beginReveal() {
     this.clearTimer();
+    this.clearBotTimer();
     const actions = [...this.submissions.values()];
     this.state.revealedActions = actions.map((action) => ({ ...action }));
     this.resolveNow();
@@ -167,7 +203,10 @@ class GameRoom {
     this.state.phase = "resolving";
     this.state = resolveRound(this.state, [...this.submissions.values()]);
     this.submissions.clear();
-    if (this.state.phase === "selecting") this.schedule("selecting", 60_000);
+    if (this.state.phase === "selecting") {
+      this.schedule("selecting", 60_000);
+      this.queueBotMove();
+    }
     this.broadcast();
   }
 
@@ -177,12 +216,35 @@ class GameRoom {
     this.state.phase = "lobby";
     this.state.round = 0;
     this.state.astrologyRemaining = 0;
-    this.state.players = this.state.players.map((player) => ({ ...resetPlayerForGame(player), ready: false }));
+    this.state.players = this.state.players.map((player) => ({
+      ...resetPlayerForGame(player),
+      ready: player.controller === "bot",
+    }));
     this.state.submittedPlayerIds = [];
     this.state.revealedActions = [];
+    this.state.actionHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
+    this.clearBotTimer();
     this.broadcast();
+  }
+
+  private queueBotMove() {
+    this.clearBotTimer();
+    if (this.state.mode !== "human-vs-bot" || this.state.phase !== "selecting") return;
+    const bot = this.state.players.find((player) => player.controller === "bot" && player.alive);
+    if (!bot) return;
+    const round = this.state.round;
+    const decision = chooseBotAction(this.state, bot.id, bot.botDifficulty ?? this.botDifficulty);
+    this.botTimer = setTimeout(() => {
+      this.botTimer = null;
+      if (this.state.phase !== "selecting" || this.state.round !== round || this.submissions.has(bot.id)) return;
+      try {
+        this.submitAction(bot.id, round, decision.action.cardId, decision.action.targetIds);
+      } catch (error) {
+        console.error("AI提交动作失败", error);
+      }
+    }, 650);
   }
 
   private schedule(phase: "selecting", delay: number) {
@@ -207,6 +269,11 @@ class GameRoom {
     this.state.deadlineAt = null;
   }
 
+  private clearBotTimer() {
+    if (this.botTimer) clearTimeout(this.botTimer);
+    this.botTimer = null;
+  }
+
   private publicState(): PublicRoomState {
     return {
       ...this.state,
@@ -225,17 +292,22 @@ class GameRoom {
 
 const rooms = new Map<string, GameRoom>();
 
-app.post("/api/rooms", (_request, response) => {
+app.post("/api/rooms", (request, response) => {
+  const mode: RoomMode = request.body?.mode === "human-vs-bot" ? "human-vs-bot" : "multiplayer";
+  const requestedDifficulty = request.body?.difficulty;
+  const difficulty: BotDifficulty = ["easy", "normal", "hard"].includes(requestedDifficulty)
+    ? requestedDifficulty
+    : "normal";
   let code = createCode();
   while (rooms.has(code)) code = createCode();
-  rooms.set(code, new GameRoom(code));
-  response.status(201).json({ roomCode: code });
+  rooms.set(code, new GameRoom(code, mode, difficulty));
+  response.status(201).json({ roomCode: code, mode, difficulty });
 });
 
 app.get("/api/rooms/:code", (request, response) => {
   const room = rooms.get(request.params.code.toUpperCase());
   if (!room) return response.status(404).json({ error: "房间不存在" });
-  return response.json({ roomCode: room.code, phase: room.state.phase, playerCount: room.state.players.length });
+  return response.json({ roomCode: room.code, mode: room.state.mode, phase: room.state.phase, playerCount: room.state.players.length });
 });
 
 app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size }));

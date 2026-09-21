@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
   Bolt,
+  Bot,
   Check,
   ChevronRight,
   CircleHelp,
@@ -126,11 +127,15 @@ export default function App() {
     });
   };
 
-  const createRoom = async () => {
+  const createRoom = async (mode: "multiplayer" | "human-vs-bot" = "multiplayer") => {
     if (!name.trim()) return setError("请先输入昵称");
     setError("");
     try {
-      const response = await fetch("/api/rooms", { method: "POST" });
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, difficulty: "normal" }),
+      });
       const data = (await response.json()) as { roomCode?: string; error?: string };
       if (!response.ok || !data.roomCode) throw new Error(data.error ?? "创建房间失败");
       connect(data.roomCode);
@@ -207,9 +212,14 @@ export default function App() {
           <label className="field-label" htmlFor="nickname">你的昵称</label>
           <input id="nickname" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={12} placeholder="输入昵称" />
 
-          <button className="primary-button" onClick={createRoom} disabled={connection === "connecting"}>
-            <Swords size={19} /> 创建房间
-          </button>
+          <div className="home-mode-buttons">
+            <button className="primary-button" onClick={() => createRoom("multiplayer")} disabled={connection === "connecting"}>
+              <Swords size={19} /> 创建联机房间
+            </button>
+            <button className="secondary-button ai-button" onClick={() => createRoom("human-vs-bot")} disabled={connection === "connecting"}>
+              <Bot size={19} /> 1v1 对战基础AI
+            </button>
+          </div>
 
           <div className="or"><span>或者加入朋友的房间</span></div>
           <div className="join-row">
@@ -217,7 +227,7 @@ export default function App() {
             <button className="secondary-button" onClick={() => connect(joinCode)}>加入 <ChevronRight size={18} /></button>
           </div>
           {error && <p className="error-message">{error}</p>}
-          <div className="home-meta"><Users size={16} /> 支持2—10人 · 无需注册 · 手机可玩</div>
+          <div className="home-meta"><Users size={16} /> 支持人机1v1及2—10人联机 · 无需注册</div>
         </section>
       </main>
     );
@@ -236,10 +246,10 @@ export default function App() {
           <div className="lobby-list">
             {room.players.map((player, index) => (
               <div className="lobby-player" key={player.id}>
-                <span className="avatar">{player.name.slice(0, 1)}</span>
-                <div className="player-copy"><strong>{player.name}</strong><span>{player.connected ? "在线" : "等待重连"}</span></div>
+                <span className="avatar">{player.controller === "bot" ? <Bot size={21} /> : player.name.slice(0, 1)}</span>
+                <div className="player-copy"><strong>{player.name}</strong><span>{player.controller === "bot" ? "基础策略AI · 不读取暗牌" : player.connected ? "在线" : "等待重连"}</span></div>
                 {player.id === room.hostId && <Crown className="host-crown" size={19} />}
-                <span className={`ready-pill ${player.ready ? "is-ready" : ""}`}>{player.ready ? "已准备" : index === 0 ? "房主" : "未准备"}</span>
+                <span className={`ready-pill ${player.ready ? "is-ready" : ""}`}>{player.controller === "bot" ? "AI已就绪" : player.ready ? "已准备" : index === 0 ? "房主" : "未准备"}</span>
               </div>
             ))}
           </div>
@@ -247,7 +257,7 @@ export default function App() {
             <button className="secondary-button large" onClick={() => send({ type: "ready" })}>{me?.ready ? "取消准备" : "准备"}</button>
             {isHost && <button className="primary-button large" disabled={room.players.length < 2 || room.players.some((player) => !player.ready)} onClick={() => send({ type: "startGame" })}><Swords size={19} /> 开始游戏</button>}
           </div>
-          <p className="hint">把房间码发给朋友。所有玩家准备后，由房主开始。</p>
+          <p className="hint">{room.mode === "human-vs-bot" ? "准备后开始。AI会在每轮开始时独立决定出牌，不会读取你的暗牌。" : "把房间码发给朋友。所有玩家准备后，由房主开始。"}</p>
         </section>
       </main>
     );
@@ -273,11 +283,11 @@ export default function App() {
               onClick={() => player.id !== playerId && player.alive && toggleTarget(player.id)}
               disabled={player.id === playerId || !player.alive || !selectedCard}
             >
-              <span className="avatar small">{player.name.slice(0, 1)}</span>
+              <span className="avatar small">{player.controller === "bot" ? <Bot size={18} /> : player.name.slice(0, 1)}</span>
               <span className="seat-name">{player.name}{player.id === playerId ? "（你）" : ""}</span>
               <span className="seat-stats"><Heart size={14} /> {player.life} <Bolt size={14} /> {player.charge}</span>
               <span className="seat-state">
-                {!player.connected ? "掉线" : !player.alive ? "已死亡" : room.submittedPlayerIds.includes(player.id) ? "已提交" : "选择中"}
+                {!player.connected ? "掉线" : !player.alive ? "已死亡" : room.submittedPlayerIds.includes(player.id) ? "已提交" : player.controller === "bot" ? "AI思考中" : "选择中"}
               </span>
               {player.goldenRoosterActive && <span className="mini-status">金鸡独立</span>}
               {action && <span className="revealed-card">{CARD_DEFINITIONS[action.cardId].name}</span>}

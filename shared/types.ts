@@ -1,6 +1,9 @@
 import type { CardId, LimitedCardId } from "./cards.js";
 
 export type GamePhase = "lobby" | "selecting" | "resolving" | "finished";
+export type PlayerController = "human" | "bot";
+export type RoomMode = "multiplayer" | "human-vs-bot";
+export type BotDifficulty = "easy" | "normal" | "hard";
 
 export interface PlayerState {
   id: string;
@@ -10,6 +13,8 @@ export interface PlayerState {
   alive: boolean;
   ready: boolean;
   connected: boolean;
+  controller: PlayerController;
+  botDifficulty?: BotDifficulty;
   remainingUses: Record<LimitedCardId, number>;
   freeBigGuns: number;
   goldenRoosterActive: boolean;
@@ -32,6 +37,11 @@ export interface PublicAction {
   targetIds: string[];
 }
 
+export interface RoundRecord {
+  round: number;
+  actions: PublicAction[];
+}
+
 export interface GameEvent {
   id: string;
   type: "system" | "card" | "resource" | "clash" | "break" | "blocked" | "reflected" | "damage" | "death";
@@ -43,6 +53,9 @@ export interface GameEvent {
 
 export interface RoomState {
   roomCode: string;
+  mode: RoomMode;
+  botSeed: number;
+  botStrategyVersion: string;
   hostId: string;
   phase: GamePhase;
   round: number;
@@ -51,6 +64,7 @@ export interface RoomState {
   astrologyRemaining: number;
   submittedPlayerIds: string[];
   revealedActions: PublicAction[];
+  actionHistory: RoundRecord[];
   events: GameEvent[];
   winnerIds: string[];
 }

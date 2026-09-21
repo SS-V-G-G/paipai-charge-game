@@ -5,6 +5,9 @@ import type { RoomState, SubmittedAction } from "../shared/types.js";
 function room(): RoomState {
   return {
     roomCode: "TEST01",
+    mode: "multiplayer",
+    botSeed: 12345,
+    botStrategyVersion: "test",
     hostId: "p1",
     phase: "selecting",
     round: 1,
@@ -17,6 +20,7 @@ function room(): RoomState {
     astrologyRemaining: 0,
     submittedPlayerIds: [],
     revealedActions: [],
+    actionHistory: [],
     events: [],
     winnerIds: [],
   };

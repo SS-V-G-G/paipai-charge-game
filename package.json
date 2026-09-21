@@ -12,6 +12,8 @@
     "start": "node dist/server/server/index.js",
     "preview": "npm run build && npm run start",
     "test": "vitest run",
+    "smoke:bot": "node tests/smoke-bot.mjs",
+    "self-play": "tsx scripts/self-play.ts",
     "check": "tsc -b && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
