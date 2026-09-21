@@ -29,12 +29,14 @@ npm run check
 npm test
 node tests/smoke-multiplayer.mjs
 node tests/smoke-bot.mjs
+node tests/smoke-training.mjs
 ```
 
 - `npm run check`：检查前端、规则引擎和服务器类型。
 - `npm test`：执行核心规则测试。
 - `smoke-multiplayer.mjs`：启动两个真实 Socket.IO 客户端，验证创建房间、准备、开始、出牌和同步结算。
 - `smoke-bot.mjs`：验证人机房间、AI自动加入、暗牌隔离、AI出牌和回合重放记录。
+- `smoke-training.mjs`：完成一局两回合牌局并确认 PostgreSQL 的匿名训练记录数增加。
 
 ## 基础策略 AI
 

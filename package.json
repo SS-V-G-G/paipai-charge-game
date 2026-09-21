@@ -13,6 +13,7 @@
     "preview": "npm run build && npm run start",
     "test": "vitest run",
     "smoke:bot": "node tests/smoke-bot.mjs",
+    "smoke:training": "node tests/smoke-training.mjs",
     "self-play": "tsx scripts/self-play.ts",
     "export:training": "tsx scripts/export-training.ts",
     "check": "tsc -b && tsc -p tsconfig.server.json --noEmit"
