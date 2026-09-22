@@ -2,7 +2,7 @@ import { CARD_DEFINITIONS, LIMITED_STARTING_USES, type CardDefinition, type Card
 import type { GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-export const RULES_VERSION = "2026-09-22.1";
+export const RULES_VERSION = "2026-09-22.2";
 
 function event(
   events: GameEvent[],
@@ -384,22 +384,16 @@ export function resolveRound(
   state.submittedPlayerIds = [];
 
   const survivors = state.players.filter((player) => player.alive);
-  if (survivors.length === 0) {
-    const replayState = copy(current);
-    replayState.phase = "selecting";
-    replayState.deadlineAt = null;
-    replayState.submittedPlayerIds = [];
-    replayState.revealedActions = state.revealedActions;
-    replayState.actionHistory = state.actionHistory;
-    replayState.events = state.events;
-    replayState.winnerIds = [];
-    event(replayState.events, "system", "全员同时死亡，本轮作废并重新出牌");
-    return replayState;
-  }
-  if (survivors.length === 1) {
+  if (survivors.length <= 1) {
     state.phase = "finished";
     state.winnerIds = survivors.map((player) => player.id);
-    event(state.events, "system", `${survivors[0].name}获得胜利`, undefined, state.winnerIds);
+    event(
+      state.events,
+      "system",
+      survivors.length === 1 ? `${survivors[0].name}获得胜利` : "所有存活玩家同时死亡，本局平局",
+      undefined,
+      state.winnerIds,
+    );
   } else {
     state.phase = "selecting";
     state.round += 1;

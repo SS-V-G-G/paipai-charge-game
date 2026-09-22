@@ -107,17 +107,18 @@ describe("基础攻击与防御", () => {
     expect(result.phase).toBe("selecting");
   });
 
-  it("普通结算全员同时死亡时本轮作废重赛，而不是产生平局", () => {
+  it("普通结算全员同时死亡时直接判为平局", () => {
     const state = room();
     state.players = state.players.slice(0, 2);
     const result = resolveRound(state, [
       { playerId: "p1", cardId: "contempt", targetIds: ["p2"] },
       { playerId: "p2", cardId: "contempt", targetIds: ["p1"] },
     ]);
-    expect(result.phase).toBe("selecting");
+    expect(result.phase).toBe("finished");
     expect(result.round).toBe(1);
-    expect(result.players.every((player) => player.alive && player.life === 1)).toBe(true);
-    expect(result.events.at(-1)?.text).toContain("本轮作废");
+    expect(result.players.every((player) => !player.alive && player.life === 0)).toBe(true);
+    expect(result.winnerIds).toEqual([]);
+    expect(result.events.at(-1)?.text).toContain("本局平局");
   });
 });
 

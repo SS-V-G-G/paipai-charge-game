@@ -339,7 +339,7 @@ export default function App() {
         <section className="result-panel">
           <Crown size={38} />
           <p className="eyebrow">牌局结束</p>
-          <h2>{room.winnerIds.length ? `${room.players.find((player) => player.id === room.winnerIds[0])?.name}获胜` : "鄙视方赢得猜拳，本局平局"}</h2>
+          <h2>{room.winnerIds.length ? `${room.players.find((player) => player.id === room.winnerIds[0])?.name}获胜` : "本局平局"}</h2>
           {room.hostId === playerId && <button className="primary-button" onClick={() => send({ type: "playAgain" })}>再来一局</button>}
         </section>
       ) : room.phase === "rockPaperScissors" && room.rps ? (
@@ -518,7 +518,7 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
         <div className="rule-block"><Swords size={19} /><div><strong>射</strong><p>出牌时必须预先指定目标；若目标本轮出花则直接击杀，亮牌后不能改选。</p></div></div>
         <div className="rule-block"><Bolt size={19} /><div><strong>占星术</strong><p>使用者本轮无敌，之后5轮全场不能出蓄，但仍可通过搓、花、拉获得蓄。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>鄙视猜拳</strong><p>1v1时，若鄙视目标本轮使用了需要消耗蓄的牌，双方进入猜拳。平局继续；鄙视方赢则整局平局，鄙视方输则目标获胜。</p></div></div>
-        <div className="rule-block"><Radio size={19} /><div><strong>无普通平局</strong><p>只有鄙视方赢得猜拳时才会产生平局。其他结算若全员同时死亡，该回合作废并重新出牌。</p></div></div>
+        <div className="rule-block"><Radio size={19} /><div><strong>平局判定</strong><p>鄙视方赢得猜拳时判为平局；普通回合若所有存活玩家同时死亡，也直接判为平局。</p></div></div>
         <div className="rule-block"><Radio size={19} /><div><strong>完全可重放</strong><p>相同初始状态、玩家顺序、出牌和猜拳提交会产生完全相同的结果；超时选择也由牌局种子确定。</p></div></div>
         <div className="rule-block"><Bot size={19} /><div><strong>匿名训练数据</strong><p>完成的对局会保存规则版本、AI版本、匿名座位、逐轮动作和胜负，用于离线训练AI；不保存昵称、重连凭证或IP。</p></div></div>
         <div className="all-card-rules">
