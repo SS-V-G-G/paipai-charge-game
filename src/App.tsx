@@ -303,37 +303,12 @@ export default function App() {
         {secondsLeft !== null && <span className={`timer ${secondsLeft <= 10 ? "urgent" : ""}`}>{secondsLeft}s</span>}
       </section>
 
-      <section className="players-grid" aria-label="玩家状态">
-        {room.players.map((player) => {
-          const action = room.revealedActions.find((item) => item.playerId === player.id);
-          return (
-            <div
-              className={`player-seat ${player.id === playerId ? "is-me" : ""} ${!player.alive ? "is-dead" : ""} ${targets.includes(player.id) ? "is-target" : ""} ${player.id !== playerId && player.alive && selectedCard ? "can-target" : ""}`}
-              key={player.id}
-              onClick={() => player.id !== playerId && player.alive && toggleTarget(player.id)}
-              role="button"
-              tabIndex={player.id !== playerId && player.alive && selectedCard ? 0 : -1}
-              style={{ "--player-color": playerColors[player.id] } as CSSProperties}
-            >
-              <span className="avatar small">{player.controller === "bot" ? <Bot size={18} /> : player.name.slice(0, 1)}</span>
-              <span className="seat-name">{player.name}{player.id === playerId ? "（你）" : ""}</span>
-              <button className="color-cycle" title={`更换${player.name}的显示颜色`} onClick={(event) => { event.stopPropagation(); cyclePlayerColor(player.id); }} aria-label={`更换${player.name}的显示颜色`} />
-              <span className="seat-stats"><Heart size={14} /> {player.life} <Bolt size={14} /> {player.charge}</span>
-              <span className="seat-state">
-                {!player.connected
-                  ? "掉线"
-                  : !player.alive
-                    ? "已死亡"
-                    : room.phase === "rockPaperScissors"
-                      ? room.rps?.submittedPlayerIds.includes(player.id) ? "已提交猜拳" : "猜拳中"
-                      : room.submittedPlayerIds.includes(player.id) ? "已提交" : player.controller === "bot" ? "AI思考中" : "选择中"}
-              </span>
-              {player.goldenRoosterActive && <span className="mini-status">金鸡独立</span>}
-              {action && <span className="revealed-card">{CARD_DEFINITIONS[action.cardId].name}</span>}
-            </div>
-          );
-        })}
-      </section>
+      <PlayerRelationshipBoard
+        room={room}
+        playerId={playerId}
+        playerColors={playerColors}
+        onCycleColor={cyclePlayerColor}
+      />
 
       {room.phase === "finished" ? (
         <section className="result-panel">
@@ -396,10 +371,25 @@ export default function App() {
           </section>
 
           {selectedCard && ["one-other", "two-others"].includes(CARD_DEFINITIONS[selectedCard].targetMode) && !submitted && (
-            <section className="target-panel">
-              <strong>选择目标</strong>
-              <span>{CARD_DEFINITIONS[selectedCard].targetMode === "two-others" ? `已选择 ${targets.length}/2` : "点击上方玩家"}</span>
-              <div className="target-chips">{targets.map((id) => <button key={id} onClick={() => toggleTarget(id)}>{room.players.find((player) => player.id === id)?.name} ×</button>)}</div>
+            <section className="target-picker" aria-label="选择卡牌目标">
+              <div className="target-picker-title">
+                <strong>{CARD_DEFINITIONS[selectedCard].name} · 选择目标</strong>
+                <span>{CARD_DEFINITIONS[selectedCard].targetMode === "two-others" ? `${targets.length}/2` : `${targets.length}/1`}</span>
+              </div>
+              <div className="target-picker-options">
+                {otherAlivePlayers.map((player) => (
+                  <button
+                    key={player.id}
+                    className={targets.includes(player.id) ? "selected" : ""}
+                    onClick={() => toggleTarget(player.id)}
+                    style={{ "--player-color": playerColors[player.id] } as CSSProperties}
+                  >
+                    <span>{player.controller === "bot" ? <Bot size={14} /> : player.name.slice(0, 1)}</span>
+                    {player.name}
+                  </button>
+                ))}
+              </div>
+              <button className="target-picker-cancel" onClick={() => { setSelectedCard(null); setTargets([]); }}>取消</button>
             </section>
           )}
 
@@ -437,6 +427,136 @@ function TopBar({ roomCode, connection, onLeave }: { roomCode: string; connectio
       <span className={`connection ${connection}`}>{connection === "online" ? <Wifi size={16} /> : <WifiOff size={16} />}{connection === "online" ? "在线" : "重连中"}</span>
       <button className="icon-button" onClick={onLeave} aria-label="离开房间"><LogOut size={19} /></button>
     </header>
+  );
+}
+
+interface BoardPosition {
+  x: number;
+  y: number;
+}
+
+function boardPositions(count: number): BoardPosition[] {
+  if (count === 1) return [{ x: 50, y: 50 }];
+  if (count === 2) return [{ x: 24, y: 50 }, { x: 76, y: 50 }];
+  if (count === 3) return [{ x: 50, y: 18 }, { x: 20, y: 76 }, { x: 80, y: 76 }];
+  const radiusX = count > 6 ? 44 : 39;
+  const radiusY = count > 6 ? 42 : 38;
+  return Array.from({ length: count }, (_, index) => {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / count;
+    return { x: 50 + Math.cos(angle) * radiusX, y: 50 + Math.sin(angle) * radiusY };
+  });
+}
+
+function arrowPath(source: BoardPosition, target: BoardPosition) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const unitX = dx / length;
+  const unitY = dy / length;
+  const start = { x: source.x + unitX * 9, y: source.y + unitY * 9 };
+  const end = { x: target.x - unitX * 10, y: target.y - unitY * 10 };
+  const curve = Math.min(7, length * 0.12);
+  const control = {
+    x: (start.x + end.x) / 2 - unitY * curve,
+    y: (start.y + end.y) / 2 + unitX * curve,
+  };
+  return {
+    d: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
+    labelX: control.x,
+    labelY: control.y,
+  };
+}
+
+function PlayerRelationshipBoard({
+  room,
+  playerId,
+  playerColors,
+  onCycleColor,
+}: {
+  room: PublicRoomState;
+  playerId: string;
+  playerColors: Record<string, string>;
+  onCycleColor: (playerId: string) => void;
+}) {
+  const positions = boardPositions(room.players.length);
+  const positionByPlayer = new Map(room.players.map((player, index) => [player.id, positions[index]]));
+  const indexByPlayer = new Map(room.players.map((player, index) => [player.id, index]));
+  const roundParticipants = new Set(room.revealedActions.map((action) => action.playerId));
+  const displayedRound = room.actionHistory.at(-1)?.round;
+  const arrows = room.revealedActions.flatMap((action) => {
+    const card = CARD_DEFINITIONS[action.cardId];
+    const targetIds = card.targetMode === "all-others"
+      ? room.players.filter((player) => player.id !== action.playerId && roundParticipants.has(player.id)).map((player) => player.id)
+      : action.targetIds;
+    return targetIds.map((targetId) => ({ action, targetId }));
+  });
+  const arrowVisuals = arrows.flatMap(({ action, targetId }, arrowIndex) => {
+    const source = positionByPlayer.get(action.playerId);
+    const target = positionByPlayer.get(targetId);
+    const sourceIndex = indexByPlayer.get(action.playerId);
+    if (!source || !target || sourceIndex === undefined) return [];
+    return [{
+      key: `${action.playerId}-${targetId}-${arrowIndex}`,
+      action,
+      sourceIndex,
+      geometry: arrowPath(source, target),
+      color: playerColors[action.playerId],
+    }];
+  });
+
+  return (
+    <section className={`relationship-board ${room.players.length > 6 ? "many-players" : ""}`} aria-label="本回合玩家关系图">
+      <div className="relationship-caption">
+        <div><span>对局关系图</span><strong>{displayedRound ? `第 ${displayedRound} 回合操作` : "等待首轮公开"}</strong></div>
+        <small>箭头表示指向，牌名显示公开操作</small>
+      </div>
+      <div className="relationship-stage">
+        <svg className="relationship-arrows" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            {room.players.map((player, index) => (
+              <marker key={player.id} id={`arrow-${index}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M 0 0 L 6 3 L 0 6 z" fill={playerColors[player.id]} />
+              </marker>
+            ))}
+          </defs>
+          {arrowVisuals.map(({ key, geometry, color, sourceIndex }) => (
+            <path key={key} d={geometry.d} fill="none" stroke={color} strokeWidth="2.2" vectorEffect="non-scaling-stroke" markerEnd={`url(#arrow-${sourceIndex})`} />
+          ))}
+        </svg>
+
+        {arrowVisuals.map(({ key, action, geometry, color }) => (
+          <span
+            className="relationship-arrow-label"
+            key={`${key}-label`}
+            style={{ left: `${geometry.labelX}%`, top: `${geometry.labelY}%`, color, borderColor: color } as CSSProperties}
+          >
+            {CARD_DEFINITIONS[action.cardId].name}
+          </span>
+        ))}
+
+        {room.players.map((player, index) => {
+          const position = positions[index];
+          const action = room.revealedActions.find((item) => item.playerId === player.id);
+          const card = action ? CARD_DEFINITIONS[action.cardId] : null;
+          const nonDirectedAction = card && card.targetMode === "none" ? card.name : null;
+          return (
+            <article
+              className={`relationship-player ${player.id === playerId ? "is-me" : ""} ${!player.alive ? "is-dead" : ""}`}
+              key={player.id}
+              style={{ left: `${position.x}%`, top: `${position.y}%`, "--player-color": playerColors[player.id] } as CSSProperties}
+            >
+              <div className="relationship-player-main">
+                <span className="relationship-avatar">{player.controller === "bot" ? <Bot size={16} /> : player.name.slice(0, 1)}</span>
+                <strong>{player.name}{player.id === playerId ? "（你）" : ""}</strong>
+                <button className="color-cycle" title={`更换${player.name}的显示颜色`} onClick={() => onCycleColor(player.id)} aria-label={`更换${player.name}的显示颜色`} />
+              </div>
+              <div className="relationship-stats"><span><Heart size={13} /> {player.life}</span><span><Bolt size={13} /> {player.charge}</span></div>
+              {nonDirectedAction && <span className="relationship-action">{nonDirectedAction}</span>}
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
