@@ -1,8 +1,9 @@
 import { BASE_CARD_IDS, CARD_DEFINITIONS, type CardId, type LimitedCardId } from "./cards.js";
 import { resolveRound, validateAction } from "./engine.js";
+import { findRpsDuel } from "./rps.js";
 import type { BotDifficulty, RoomState, SubmittedAction } from "./types.js";
 
-export const BOT_STRATEGY_VERSION = "lookahead-v2-rps";
+export const BOT_STRATEGY_VERSION = "lookahead-v3-hell-response";
 
 const LIMITED_CARD_VALUE: Record<LimitedCardId, number> = {
   rub: 3,
@@ -143,6 +144,54 @@ export function chooseBotAction(
     },
     score: selected.score,
     consideredActions: botActions.length * opponentActions.length,
+    strategyVersion: BOT_STRATEGY_VERSION,
+  };
+}
+
+export function chooseHellBotAction(
+  state: RoomState,
+  botId: string,
+  opponentAction: SubmittedAction,
+): BotDecision {
+  const botActions = enumerateLegalActions(state, botId);
+  const opponent = state.players.find((item) => item.alive && item.id !== botId);
+  if (!opponent || botActions.length === 0) throw new Error("地狱AI当前没有合法动作");
+  if (opponentAction.playerId !== opponent.id) throw new Error("对手动作与当前玩家不匹配");
+
+  const ranked = botActions.map((botAction) => {
+    const actions = [opponentAction, botAction];
+    const duel = findRpsDuel(state, actions);
+    let score: number;
+
+    if (duel?.targetPlayerId === botId) {
+      // 地狱AI在猜拳阶段同样后手，因此作为鄙视目标时可以确定获胜。
+      score = 2_000_000;
+    } else if (duel?.contemptPlayerId === botId) {
+      // 鄙视发起者赢猜拳只能取得平局，优先选择真正能获胜或继续对局的动作。
+      score = -500_000;
+    } else {
+      const result = resolveRound(state, actions);
+      score = evaluateResult(result, botId, opponent.id);
+      const bot = result.players.find((item) => item.id === botId)!;
+      const target = result.players.find((item) => item.id === opponent.id)!;
+      if (bot.alive && !target.alive) score += 1_000_000;
+      else if (!bot.alive && target.alive) score -= 1_000_000;
+      else if (!bot.alive && !target.alive) score -= 250_000;
+    }
+
+    // 同分时保留更多蓄与限次牌，让后续回合仍有最强反制空间。
+    score -= CARD_DEFINITIONS[botAction.cardId].cost * 0.01;
+    if (botAction.cardId in LIMITED_CARD_VALUE) {
+      score -= LIMITED_CARD_VALUE[botAction.cardId as LimitedCardId] * 0.001;
+    }
+    return { action: botAction, score };
+  }).sort((left, right) => right.score - left.score || left.action.cardId.localeCompare(right.action.cardId));
+
+  const selected = ranked[0];
+  return {
+    action: { ...selected.action, targetIds: [...selected.action.targetIds] },
+    score: selected.score,
+    consideredActions: botActions.length,
     strategyVersion: BOT_STRATEGY_VERSION,
   };
 }

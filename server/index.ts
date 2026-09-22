@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Server, type Socket } from "socket.io";
-import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
+import { BOT_STRATEGY_VERSION, chooseBotAction, chooseHellBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
 import { compareRps, deterministicRpsChoice, findRpsDuel, type RpsDuel } from "../shared/rps.js";
@@ -96,7 +96,8 @@ class GameRoom {
 
   private addBot() {
     if (this.state.players.some((item) => item.controller === "bot")) return;
-    const bot = createFreshPlayer(`bot-${this.code}`, "基础AI", `bot:${this.code}`, true, "bot");
+    const botName = this.botDifficulty === "hell" ? "地狱AI" : "基础AI";
+    const bot = createFreshPlayer(`bot-${this.code}`, botName, `bot:${this.code}`, true, "bot");
     bot.ready = true;
     bot.botDifficulty = this.botDifficulty;
     this.state.players.push(bot);
@@ -201,7 +202,11 @@ class GameRoom {
     this.submissions.set(playerId, { playerId, cardId, targetIds: [...new Set(targetIds)] });
     this.state.submittedPlayerIds.push(playerId);
     this.broadcast();
-    if (this.submissions.size >= this.state.players.filter((player) => player.alive).length) this.beginReveal();
+    if (this.submissions.size >= this.state.players.filter((player) => player.alive).length) {
+      this.beginReveal();
+    } else if (this.state.players.find((player) => player.id === playerId)?.controller === "human") {
+      this.queueBotMove();
+    }
   }
 
   private beginReveal() {
@@ -249,7 +254,10 @@ class GameRoom {
     this.rpsChoices.set(playerId, choice);
     rps.submittedPlayerIds.push(playerId);
     if (this.rpsChoices.size === 2) this.settleRps();
-    else this.broadcast();
+    else {
+      this.queueBotRpsMove();
+      this.broadcast();
+    }
   }
 
   private settleRps() {
@@ -382,7 +390,13 @@ class GameRoom {
     const bot = this.state.players.find((player) => player.controller === "bot" && player.alive);
     if (!bot) return;
     const round = this.state.round;
-    const decision = chooseBotAction(this.state, bot.id, bot.botDifficulty ?? this.botDifficulty);
+    const difficulty = bot.botDifficulty ?? this.botDifficulty;
+    const opponent = this.state.players.find((player) => player.controller === "human" && player.alive);
+    const opponentAction = opponent ? this.submissions.get(opponent.id) : undefined;
+    if (difficulty === "hell" && !opponentAction) return;
+    const decision = difficulty === "hell"
+      ? chooseHellBotAction(this.state, bot.id, opponentAction!)
+      : chooseBotAction(this.state, bot.id, difficulty);
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (this.state.phase !== "selecting" || this.state.round !== round || this.submissions.has(bot.id)) return;
@@ -391,7 +405,7 @@ class GameRoom {
       } catch (error) {
         console.error("AI提交动作失败", error);
       }
-    }, 650);
+    }, difficulty === "hell" ? 280 : 650);
   }
 
   private queueBotRpsMove() {
@@ -402,7 +416,13 @@ class GameRoom {
     if (!bot || this.rpsChoices.has(bot.id)) return;
     const attempt = rps.attempt;
     const duelId = rps.duelId;
-    const choice = deterministicRpsChoice(this.state.botSeed, `${duelId}:${attempt}:${bot.id}`);
+    const difficulty = bot.botDifficulty ?? this.botDifficulty;
+    const opponentId = bot.id === rps.contemptPlayerId ? rps.targetPlayerId : rps.contemptPlayerId;
+    const opponentChoice = this.rpsChoices.get(opponentId);
+    if (difficulty === "hell" && !opponentChoice) return;
+    const choice = difficulty === "hell"
+      ? this.winningRpsChoice(opponentChoice!)
+      : deterministicRpsChoice(this.state.botSeed, `${duelId}:${attempt}:${bot.id}`);
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (this.state.phase !== "rockPaperScissors" || this.state.rps?.duelId !== duelId || this.state.rps.attempt !== attempt) return;
@@ -411,7 +431,13 @@ class GameRoom {
       } catch (error) {
         console.error("AI提交猜拳失败", error);
       }
-    }, 650);
+    }, difficulty === "hell" ? 280 : 650);
+  }
+
+  private winningRpsChoice(choice: RpsChoice): RpsChoice {
+    if (choice === "rock") return "paper";
+    if (choice === "paper") return "scissors";
+    return "rock";
   }
 
   private scheduleRpsTimeout() {
@@ -423,6 +449,21 @@ class GameRoom {
     this.timer = setTimeout(() => {
       const current = this.state.rps;
       if (this.state.phase !== "rockPaperScissors" || !current || current.attempt !== attempt) return;
+      const bot = this.state.players.find((player) => player.controller === "bot"
+        && [current.contemptPlayerId, current.targetPlayerId].includes(player.id));
+      if (bot?.botDifficulty === "hell") {
+        const opponentId = bot.id === current.contemptPlayerId ? current.targetPlayerId : current.contemptPlayerId;
+        if (!this.rpsChoices.has(opponentId)) {
+          this.rpsChoices.set(opponentId, deterministicRpsChoice(this.state.botSeed, `${current.duelId}:${attempt}:${opponentId}:timeout`));
+          current.submittedPlayerIds.push(opponentId);
+        }
+        if (!this.rpsChoices.has(bot.id)) {
+          this.rpsChoices.set(bot.id, this.winningRpsChoice(this.rpsChoices.get(opponentId)!));
+          current.submittedPlayerIds.push(bot.id);
+        }
+        this.settleRps();
+        return;
+      }
       for (const playerId of [current.contemptPlayerId, current.targetPlayerId]) {
         if (this.rpsChoices.has(playerId)) continue;
         this.rpsChoices.set(playerId, deterministicRpsChoice(this.state.botSeed, `${current.duelId}:${attempt}:${playerId}:timeout`));
@@ -436,6 +477,7 @@ class GameRoom {
     if (!this.gameId || this.state.phase !== "finished") return;
     const completedGameId = this.gameId;
     this.gameId = null;
+    if (this.state.mode === "human-vs-bot" && this.botDifficulty === "hell") return;
     void recordCompletedGame(completedGameId, this.state);
   }
 
@@ -445,7 +487,24 @@ class GameRoom {
     this.timer = setTimeout(() => {
       if (this.state.phase !== phase) return;
       const fallback: CardId = this.state.astrologyRemaining > 0 ? "small_defense" : "charge";
-      for (const player of this.state.players.filter((item) => item.alive)) {
+      const alivePlayers = this.state.players.filter((item) => item.alive);
+      const hellBot = alivePlayers.find((player) => player.controller === "bot" && player.botDifficulty === "hell");
+      for (const player of alivePlayers.filter((item) => item.id !== hellBot?.id)) {
+        if (!this.submissions.has(player.id)) {
+          this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
+          this.state.submittedPlayerIds.push(player.id);
+        }
+      }
+      if (hellBot && !this.submissions.has(hellBot.id)) {
+        const opponent = alivePlayers.find((player) => player.id !== hellBot.id);
+        const opponentAction = opponent ? this.submissions.get(opponent.id) : undefined;
+        if (opponentAction) {
+          const action = chooseHellBotAction(this.state, hellBot.id, opponentAction).action;
+          this.submissions.set(hellBot.id, action);
+          this.state.submittedPlayerIds.push(hellBot.id);
+        }
+      }
+      for (const player of alivePlayers) {
         if (!this.submissions.has(player.id)) {
           this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
           this.state.submittedPlayerIds.push(player.id);
@@ -487,7 +546,7 @@ const rooms = new Map<string, GameRoom>();
 app.post("/api/rooms", (request, response) => {
   const mode: RoomMode = request.body?.mode === "human-vs-bot" ? "human-vs-bot" : "multiplayer";
   const requestedDifficulty = request.body?.difficulty;
-  const difficulty: BotDifficulty = ["easy", "normal", "hard"].includes(requestedDifficulty)
+  const difficulty: BotDifficulty = ["easy", "normal", "hard", "hell"].includes(requestedDifficulty)
     ? requestedDifficulty
     : "normal";
   let code = createCode();

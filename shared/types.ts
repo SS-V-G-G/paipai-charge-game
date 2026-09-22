@@ -3,7 +3,7 @@ import type { CardId, LimitedCardId } from "./cards.js";
 export type GamePhase = "lobby" | "selecting" | "resolving" | "rockPaperScissors" | "finished";
 export type PlayerController = "human" | "bot";
 export type RoomMode = "multiplayer" | "human-vs-bot";
-export type BotDifficulty = "easy" | "normal" | "hard";
+export type BotDifficulty = "easy" | "normal" | "hard" | "hell";
 export type RpsChoice = "rock" | "paper" | "scissors";
 
 export interface PlayerState {

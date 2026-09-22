@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOT_STRATEGY_VERSION, chooseBotAction, enumerateLegalActions } from "../shared/bot.js";
+import { BOT_STRATEGY_VERSION, chooseBotAction, chooseHellBotAction, enumerateLegalActions } from "../shared/bot.js";
 import { createFreshPlayer, resolveRound, validateAction } from "../shared/engine.js";
 import type { RoomState } from "../shared/types.js";
 
@@ -63,5 +63,44 @@ describe("基础策略AI", () => {
       expect(state.actionHistory).toHaveLength(previousHistoryLength + 1);
     }
     expect(state.actionHistory.length).toBeGreaterThan(0);
+  });
+});
+
+describe("地狱AI", () => {
+  it("始终返回规则引擎认可的合法后手", () => {
+    const state = botRoom();
+    const opponentAction = { playerId: "human", cardId: "flower" as const, targetIds: [] };
+    const decision = chooseHellBotAction(state, "bot", opponentAction);
+    expect(validateAction(state, "bot", decision.action.cardId, decision.action.targetIds)).toBeNull();
+    expect(decision.action).toEqual({ playerId: "bot", cardId: "shoot", targetIds: ["human"] });
+    const result = resolveRound(state, [opponentAction, decision.action]);
+    expect(result.winnerIds).toEqual(["bot"]);
+  });
+
+  it("面对小枪选择确定获胜的反制", () => {
+    const state = botRoom();
+    state.players.find((player) => player.id === "bot")!.charge = 2;
+    const opponentAction = { playerId: "human", cardId: "small_gun" as const, targetIds: ["bot"] };
+    const decision = chooseHellBotAction(state, "bot", opponentAction);
+    expect(resolveRound(state, [opponentAction, decision.action]).winnerIds).toEqual(["bot"]);
+  });
+
+  it("面对拉时出蓄直接获胜", () => {
+    const state = botRoom();
+    const opponentAction = { playerId: "human", cardId: "pull" as const, targetIds: [] };
+    const decision = chooseHellBotAction(state, "bot", opponentAction);
+    expect(decision.action.cardId).toBe("charge");
+    expect(resolveRound(state, [opponentAction, decision.action]).winnerIds).toEqual(["bot"]);
+  });
+
+  it("初始局面的每种合法出牌都不能直接击败地狱AI", () => {
+    const state = botRoom();
+    for (const opponentAction of enumerateLegalActions(state, "human")) {
+      const decision = chooseHellBotAction(state, "bot", opponentAction);
+      const result = resolveRound(state, [opponentAction, decision.action]);
+      const bot = result.players.find((player) => player.id === "bot")!;
+      const human = result.players.find((player) => player.id === "human")!;
+      expect(bot.alive || !human.alive, `${opponentAction.cardId} 击败了地狱AI`).toBe(true);
+    }
   });
 });

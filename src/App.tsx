@@ -9,6 +9,7 @@ import {
   Copy,
   Crown,
   DoorOpen,
+  Flame,
   Heart,
   GripVertical,
   LogOut,
@@ -28,7 +29,7 @@ import {
   type CardGroup,
   type CardId,
 } from "../shared/cards.js";
-import type { PublicRoomState, RpsChoice, ServerMessage } from "../shared/types.js";
+import type { BotDifficulty, PublicRoomState, RpsChoice, ServerMessage } from "../shared/types.js";
 
 const TOKEN_KEY = "paipai-charge-token";
 const NAME_KEY = "paipai-charge-name";
@@ -140,14 +141,14 @@ export default function App() {
     });
   };
 
-  const createRoom = async (mode: "multiplayer" | "human-vs-bot" = "multiplayer") => {
+  const createRoom = async (mode: "multiplayer" | "human-vs-bot" = "multiplayer", difficulty: BotDifficulty = "normal") => {
     if (!name.trim()) return setError("请先输入昵称");
     setError("");
     try {
       const response = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, difficulty: "normal" }),
+        body: JSON.stringify({ mode, difficulty }),
       });
       const data = (await response.json()) as { roomCode?: string; error?: string };
       if (!response.ok || !data.roomCode) throw new Error(data.error ?? "创建房间失败");
@@ -247,6 +248,9 @@ export default function App() {
             <button className="secondary-button ai-button" onClick={() => createRoom("human-vs-bot")} disabled={connection === "connecting"}>
               <Bot size={19} /> 1v1 对战基础AI
             </button>
+            <button className="secondary-button ai-button" onClick={() => createRoom("human-vs-bot", "hell")} disabled={connection === "connecting"}>
+              <Flame size={19} /> 挑战地狱AI
+            </button>
           </div>
 
           <div className="or"><span>或者加入朋友的房间</span></div>
@@ -276,7 +280,7 @@ export default function App() {
             {room.players.map((player, index) => (
               <div className="lobby-player" key={player.id}>
                 <span className="avatar">{player.controller === "bot" ? <Bot size={21} /> : player.name.slice(0, 1)}</span>
-                <div className="player-copy"><strong>{player.name}</strong><span>{player.controller === "bot" ? "基础策略AI · 不读取暗牌" : player.connected ? "在线" : "等待重连"}</span></div>
+                <div className="player-copy"><strong>{player.name}</strong><span>{player.controller === "bot" ? player.botDifficulty === "hell" ? "地狱难度" : "基础策略AI" : player.connected ? "在线" : "等待重连"}</span></div>
                 {player.id === room.hostId && <Crown className="host-crown" size={19} />}
                 <span className={`ready-pill ${player.ready ? "is-ready" : ""}`}>{player.controller === "bot" ? "AI已就绪" : player.ready ? "已准备" : index === 0 ? "房主" : "未准备"}</span>
               </div>
