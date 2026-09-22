@@ -52,6 +52,27 @@ AI选择由房间的 `botSeed`、回合编号和策略版本共同确定。每�
 
 可以运行 `npm run self-play -- 100 100 normal normal` 进行100局、每局最多100回合的无人自博弈评估。该命令用于检查胜率、平均回合、超时率和常用牌，是后续训练策略参数的基线工具。
 
+## 本地训练管线
+
+训练管线会把 Render 匿名回放和带探索的本地自博弈转换成同一种逐决策 JSONL 数据，训练表格型 Monte Carlo 策略，并用训练集之外的种子与现有 normal AI 对战。线上玩家按整局出牌自动归类为均衡、进攻、防守、经济或技巧风格；自博弈双方每局独立随机选择上述风格或混沌风格。风格会进入训练上下文，使同一局面可以学习不同策略。训练策略只有在局面样本和动作样本都达到置信门槛、且收益显著高于基础策略时才覆盖基础策略；其余局面自动回退现有搜索 AI。
+
+```bash
+# 从线上公开诊断接口下载匿名回放并转换当前规则版本
+npm run training:download -- https://paipai-charge-game.onrender.com training-data/render-replays.jsonl
+npm run training:convert -- training-data/render-replays.jsonl training-data/render-training.jsonl
+
+# 生成1000局带40%探索率、每局最多60回合的自博弈
+npm run training:generate -- 1000 training-data/self-play-v1.jsonl 0.40 60
+
+# 合并真人回放与自博弈训练；多个输入文件用逗号分隔
+npm run training:train -- "training-data/self-play-v1.jsonl,training-data/render-training.jsonl" models/combined-policy-v1.json
+
+# 用独立种子评估候选策略，双方轮换先后座位
+npm run training:evaluate -- models/combined-policy-v1.json 500 80
+```
+
+`training-data/*.jsonl` 和普通候选模型默认不提交到 Git；通过评估的 `models/styled-policy-v2-10k.json` 作为生产模型单独纳入版本控制。网页的 normal 基础 AI 已使用该模型，每局随机选择一种风格，低置信局面自动回退原搜索策略。当前管线只训练公平信息策略，不使用地狱 AI 的后手信息。
+
 ## 匿名训练数据库
 
 设置 `DATABASE_URL` 后，服务器会自动创建 `training_games` 表。每局完成时保存规则版本、AI版本、匿名座位、随机种子、逐回合动作、逐次猜拳、最终状态和胜负。数据库不保存昵称、房间码、重连凭证或IP地址；数据库暂时不可用时不会影响正常游戏。

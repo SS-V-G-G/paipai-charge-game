@@ -4,3 +4,6 @@ dist
 .dev.vars*
 .sites-runtime
 *.log
+training-data/*.jsonl
+models/*.json
+!models/styled-policy-v2-10k.json

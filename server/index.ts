@@ -8,6 +8,7 @@ import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
 import { compareRps, deterministicRpsChoice, findRpsDuel, type RpsDuel } from "../shared/rps.js";
 import { databaseHealth, initializeDatabase, recordCompletedGame, trainingGameDiagnostics, trainingStats } from "./database.js";
+import { TRAINED_BOT_STRATEGY_VERSION, basicAiStyleLabel, chooseBasicAiAction, selectBasicAiStyle, trainedPolicyHealth } from "./trained-policy.js";
 import type {
   ClientMessage,
   BotDifficulty,
@@ -51,6 +52,8 @@ class GameRoom {
   private timer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   private gameId: string | null = null;
+  private gameSequence = 0;
+  private botStyle = selectBasicAiStyle(0, 0);
 
   constructor(code: string, mode: RoomMode, private readonly botDifficulty: BotDifficulty) {
     this.code = code;
@@ -58,7 +61,7 @@ class GameRoom {
       roomCode: code,
       mode,
       botSeed: seedFromCode(code),
-      botStrategyVersion: BOT_STRATEGY_VERSION,
+      botStrategyVersion: botDifficulty === "hell" ? BOT_STRATEGY_VERSION : TRAINED_BOT_STRATEGY_VERSION,
       hostId: "",
       phase: "lobby",
       round: 0,
@@ -169,8 +172,14 @@ class GameRoom {
     if (this.state.players.length < 2) throw new Error("至少需要2名玩家");
     if (this.state.players.some((player) => !player.ready)) throw new Error("还有玩家没有准备");
 
+    this.gameSequence += 1;
+    this.botStyle = selectBasicAiStyle(this.state.botSeed, this.gameSequence);
+    this.state.botStrategyVersion = this.botDifficulty === "hell" ? BOT_STRATEGY_VERSION : TRAINED_BOT_STRATEGY_VERSION;
     this.state.players = this.state.players.map((player) => ({
       ...resetPlayerForGame(player),
+      name: player.controller === "bot" && this.botDifficulty !== "hell"
+        ? `基础AI·${basicAiStyleLabel(this.botStyle)}`
+        : player.name,
       ready: player.controller === "bot",
     }));
     this.state.phase = "selecting";
@@ -396,7 +405,9 @@ class GameRoom {
     if (difficulty === "hell" && !opponentAction) return;
     const decision = difficulty === "hell"
       ? chooseHellBotAction(this.state, bot.id, opponentAction!)
-      : chooseBotAction(this.state, bot.id, difficulty);
+      : difficulty === "normal"
+        ? { action: chooseBasicAiAction(this.state, bot.id, this.botStyle) }
+        : chooseBotAction(this.state, bot.id, difficulty);
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (this.state.phase !== "selecting" || this.state.round !== round || this.submissions.has(bot.id)) return;
@@ -561,7 +572,7 @@ app.get("/api/rooms/:code", (request, response) => {
   return response.json({ roomCode: room.code, mode: room.state.mode, phase: room.state.phase, playerCount: room.state.players.length });
 });
 
-app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size, database: databaseHealth() }));
+app.get("/api/health", (_request, response) => response.json({ ok: true, rooms: rooms.size, database: databaseHealth(), trainedPolicy: trainedPolicyHealth() }));
 app.get("/api/training/stats", async (_request, response) => response.json(await trainingStats()));
 app.get("/api/training/diagnostics", async (request, response) => {
   const cardId = String(request.query.card ?? "");

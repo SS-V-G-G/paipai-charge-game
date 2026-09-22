@@ -17,6 +17,11 @@
     "smoke:rps": "node tests/smoke-rps.mjs",
     "smoke:training": "node tests/smoke-training.mjs",
     "self-play": "tsx scripts/self-play.ts",
+    "training:generate": "tsx scripts/generate-self-play.ts",
+    "training:download": "tsx scripts/download-render-training.ts",
+    "training:convert": "tsx scripts/convert-replays.ts",
+    "training:train": "tsx scripts/train-policy.ts",
+    "training:evaluate": "tsx scripts/evaluate-trained.ts",
     "export:training": "tsx scripts/export-training.ts",
     "check": "tsc -b && tsc -p tsconfig.server.json --noEmit"
   },
