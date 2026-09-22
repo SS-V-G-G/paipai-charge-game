@@ -21,6 +21,8 @@ function room(): RoomState {
     submittedPlayerIds: [],
     revealedActions: [],
     actionHistory: [],
+    rps: null,
+    rpsHistory: [],
     events: [],
     winnerIds: [],
   };
@@ -80,9 +82,92 @@ describe("基础攻击与防御", () => {
     expect(result.players.find((player) => player.id === "p2")?.alive).toBe(true);
     expect(result.events.some((item) => item.type === "clash" && item.text.includes("双方攻击抵消"))).toBe(true);
   });
+
+  it("全场攻击会参与互攻，并以大伤害压掉小伤害", () => {
+    const state = room();
+    state.players = state.players.slice(0, 2);
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "super_flying_knife", targetIds: [] },
+      { playerId: "p2", cardId: "small_gun", targetIds: ["p1"] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.alive).toBe(true);
+    expect(result.players.find((player) => player.id === "p2")?.alive).toBe(false);
+    expect(result.winnerIds).toEqual(["p1"]);
+    expect(result.events.some((item) => item.type === "clash" && item.text.includes("超级飞刀压掉"))).toBe(true);
+  });
+
+  it("全场攻击与同伤害定向攻击互相抵消", () => {
+    const state = room();
+    state.players = state.players.slice(0, 2);
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "shotgun", targetIds: [] },
+      { playerId: "p2", cardId: "small_gun", targetIds: ["p1"] },
+    ]);
+    expect(result.players.every((player) => player.alive)).toBe(true);
+    expect(result.phase).toBe("selecting");
+  });
+
+  it("普通结算全员同时死亡时本轮作废重赛，而不是产生平局", () => {
+    const state = room();
+    state.players = state.players.slice(0, 2);
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "contempt", targetIds: ["p2"] },
+      { playerId: "p2", cardId: "contempt", targetIds: ["p1"] },
+    ]);
+    expect(result.phase).toBe("selecting");
+    expect(result.round).toBe(1);
+    expect(result.players.every((player) => player.alive && player.life === 1)).toBe(true);
+    expect(result.events.at(-1)?.text).toContain("本轮作废");
+  });
 });
 
 describe("特殊规则", () => {
+  it("拉改为全场判定，任一其他玩家出蓄时自己生命清零", () => {
+    const state = room();
+    expect(validateAction(state, "p1", "pull", [])).toBeNull();
+    expect(validateAction(state, "p1", "pull", ["p2"])).toBe("这张牌不应在提交时指定目标");
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "pull", targetIds: [] },
+      { playerId: "p2", cardId: "small_reflect", targetIds: [] },
+      { playerId: "p3", cardId: "charge", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.alive).toBe(false);
+    expect(result.players.find((player) => player.id === "p1")?.charge).toBe(20);
+  });
+
+  it("拉按全场小反和大反人数累计获得蓄", () => {
+    const state = room();
+    state.players.push({ ...createFreshPlayer("p4", "丁", "t4"), charge: 20 });
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "pull", targetIds: [] },
+      { playerId: "p2", cardId: "small_reflect", targetIds: [] },
+      { playerId: "p3", cardId: "small_reflect", targetIds: [] },
+      { playerId: "p4", cardId: "big_reflect", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.charge).toBe(44);
+  });
+
+  it("全场无人出蓄、小反、大反时，拉获得3蓄", () => {
+    const result = resolve([
+      { playerId: "p1", cardId: "pull", targetIds: [] },
+      { playerId: "p2", cardId: "small_defense", targetIds: [] },
+      { playerId: "p3", cardId: "flower", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.charge).toBe(23);
+  });
+
+  it("金鸡独立状态免疫拉中蓄的生命清零", () => {
+    const state = room();
+    state.players.find((player) => player.id === "p1")!.goldenRoosterActive = true;
+    const result = resolveRound(state, [
+      { playerId: "p1", cardId: "pull", targetIds: [] },
+      { playerId: "p2", cardId: "charge", targetIds: [] },
+      { playerId: "p3", cardId: "small_defense", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.alive).toBe(true);
+    expect(result.events.some((item) => item.type === "blocked" && item.text.includes("金鸡独立"))).toBe(true);
+  });
+
   it("场上出现赞时，鄙视击杀赞的双方而不杀自己", () => {
     const result = resolve([
       { playerId: "p1", cardId: "contempt", targetIds: ["p2"] },

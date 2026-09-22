@@ -2,7 +2,7 @@ import { BASE_CARD_IDS, CARD_DEFINITIONS, type CardId, type LimitedCardId } from
 import { resolveRound, validateAction } from "./engine.js";
 import type { BotDifficulty, RoomState, SubmittedAction } from "./types.js";
 
-export const BOT_STRATEGY_VERSION = "lookahead-v1";
+export const BOT_STRATEGY_VERSION = "lookahead-v2-rps";
 
 const LIMITED_CARD_VALUE: Record<LimitedCardId, number> = {
   rub: 3,

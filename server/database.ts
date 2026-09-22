@@ -3,7 +3,7 @@ import type { CardId } from "../shared/cards.js";
 import { RULES_VERSION } from "../shared/engine.js";
 import type { RoomState } from "../shared/types.js";
 
-const DATA_POLICY_VERSION = "anonymous-training-v1";
+const DATA_POLICY_VERSION = "anonymous-training-v2";
 const connectionString = process.env.DATABASE_URL?.trim();
 const pool = connectionString
   ? new Pool({
@@ -18,7 +18,7 @@ let ready = false;
 let lastError: string | null = null;
 
 export interface TrainingReplay {
-  schemaVersion: 1;
+  schemaVersion: 2;
   rulesVersion: string;
   botStrategyVersion: string;
   botSeed: number;
@@ -36,6 +36,15 @@ export interface TrainingReplay {
       targetSeatIds: string[];
     }>;
   }>;
+  rps: Array<{
+    duelId: string;
+    gameRound: number;
+    attempt: number;
+    contemptSeatId: string;
+    targetSeatId: string;
+    choices: Array<{ seatId: string; choice: "rock" | "paper" | "scissors" }>;
+    result: "tie" | "contempt-won" | "target-won";
+  }>;
   outcome: {
     winnerSeatIds: string[];
     finalPlayers: Array<{
@@ -52,7 +61,7 @@ export function buildTrainingReplay(state: RoomState): TrainingReplay {
   const seat = (playerId: string) => seatByPlayerId.get(playerId) ?? "unknown-seat";
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     rulesVersion: RULES_VERSION,
     botStrategyVersion: state.botStrategyVersion,
     botSeed: state.botSeed,
@@ -69,6 +78,18 @@ export function buildTrainingReplay(state: RoomState): TrainingReplay {
         cardId: action.cardId,
         targetSeatIds: action.targetIds.map(seat),
       })),
+    })),
+    rps: state.rpsHistory.map((record, index) => ({
+      duelId: `duel-${index + 1}`,
+      gameRound: record.gameRound,
+      attempt: record.attempt,
+      contemptSeatId: seat(record.contemptPlayerId),
+      targetSeatId: seat(record.targetPlayerId),
+      choices: record.choices.map((choice) => ({
+        seatId: seat(choice.playerId),
+        choice: choice.choice,
+      })),
+      result: record.result,
     })),
     outcome: {
       winnerSeatIds: state.winnerIds.map(seat),

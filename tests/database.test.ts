@@ -28,6 +28,19 @@ describe("匿名训练记录", () => {
           { playerId: "private-bot-id", cardId: "small_defense", targetIds: [] },
         ],
       }],
+      rps: null,
+      rpsHistory: [{
+        duelId: "private-human-id-private-bot-id",
+        gameRound: 2,
+        attempt: 1,
+        contemptPlayerId: "private-human-id",
+        targetPlayerId: "private-bot-id",
+        choices: [
+          { playerId: "private-human-id", choice: "rock" },
+          { playerId: "private-bot-id", choice: "scissors" },
+        ],
+        result: "contempt-won",
+      }],
       events: [],
       winnerIds: ["private-human-id"],
     };
@@ -36,6 +49,12 @@ describe("匿名训练记录", () => {
     const serialized = JSON.stringify(replay);
     expect(replay.rounds[0].actions[0]).toEqual({ seatId: "seat-1", cardId: "charge", targetSeatIds: [] });
     expect(replay.outcome.winnerSeatIds).toEqual(["seat-1"]);
+    expect(replay.schemaVersion).toBe(2);
+    expect(replay.rps[0]).toMatchObject({
+      contemptSeatId: "seat-1",
+      targetSeatId: "seat-2",
+      result: "contempt-won",
+    });
     expect(serialized).not.toContain("真实昵称");
     expect(serialized).not.toContain("secret-token");
     expect(serialized).not.toContain("private-human-id");

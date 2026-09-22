@@ -40,7 +40,7 @@ export const CARD_DEFINITIONS = {
   golden_rooster: { id: "golden_rooster", name: "金鸡独立", group: "C", cost: 0, limit: 2, targetMode: "none", description: "下一轮进入金鸡独立状态，仅散弹、劈、双劈能够造成伤害。" },
 
   charge: { id: "charge", name: "蓄", group: "D", cost: 0, targetMode: "none", description: "获得1蓄。" },
-  pull: { id: "pull", name: "拉", group: "D", cost: 0, targetMode: "one-other", description: "目标出蓄则自己生命清零；否则获得3蓄，小反为6，大反为12。" },
+  pull: { id: "pull", name: "拉", group: "D", cost: 0, targetMode: "none", description: "检查全场其他玩家：任一人出蓄则自己生命清零（金鸡独立免疫）；无人出蓄时，每个小反提供6蓄、每个大反提供12蓄；若蓄、小反、大反均无人使用，则获得3蓄。" },
   small_defense: { id: "small_defense", name: "小防", group: "D", cost: 0, targetMode: "none", description: "抵挡不高于4点的伤害。", tags: ["defense"] },
   contempt: { id: "contempt", name: "鄙视", group: "D", cost: 0, targetMode: "one-other", description: "清空自己生命和目标蓄；场上有赞时改为击杀所有赞的参与者。" },
 

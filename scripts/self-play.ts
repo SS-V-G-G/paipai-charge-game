@@ -1,5 +1,6 @@
 import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
 import { createFreshPlayer, resolveRound } from "../shared/engine.js";
+import { compareRps, deterministicRpsChoice, findRpsDuel } from "../shared/rps.js";
 import type { BotDifficulty, RoomState } from "../shared/types.js";
 
 const gameCount = Math.max(1, Number(process.argv[2] ?? 100));
@@ -28,6 +29,8 @@ function createState(seed: number): RoomState {
     submittedPlayerIds: [],
     revealedActions: [],
     actionHistory: [],
+    rps: null,
+    rpsHistory: [],
     events: [],
     winnerIds: [],
   };
@@ -35,12 +38,49 @@ function createState(seed: number): RoomState {
 
 for (let game = 1; game <= gameCount; game += 1) {
   let state = createState(game);
-  while (state.phase !== "finished" && state.round <= maxRounds) {
+  while (state.phase !== "finished" && state.actionHistory.length < maxRounds) {
     const left = chooseBotAction(state, "left", leftDifficulty).action;
     const right = chooseBotAction(state, "right", rightDifficulty).action;
     cardCounts.set(left.cardId, (cardCounts.get(left.cardId) ?? 0) + 1);
     cardCounts.set(right.cardId, (cardCounts.get(right.cardId) ?? 0) + 1);
+    const duel = findRpsDuel(state, [left, right]);
+    if (!duel) {
+      state = resolveRound(state, [left, right]);
+      continue;
+    }
+
+    let attempt = 1;
+    let comparison: ReturnType<typeof compareRps> = "tie";
+    while (comparison === "tie") {
+      const contemptChoice = deterministicRpsChoice(state.botSeed, `${duel.duelId}:${attempt}:${duel.contemptPlayerId}`);
+      const targetChoice = deterministicRpsChoice(state.botSeed, `${duel.duelId}:${attempt}:${duel.targetPlayerId}`);
+      comparison = compareRps(contemptChoice, targetChoice);
+      state.rpsHistory.push({
+        duelId: duel.duelId,
+        gameRound: state.round,
+        attempt,
+        contemptPlayerId: duel.contemptPlayerId,
+        targetPlayerId: duel.targetPlayerId,
+        choices: [
+          { playerId: duel.contemptPlayerId, choice: contemptChoice },
+          { playerId: duel.targetPlayerId, choice: targetChoice },
+        ],
+        result: comparison === "tie" ? "tie" : comparison === "left" ? "contempt-won" : "target-won",
+      });
+      attempt += 1;
+    }
     state = resolveRound(state, [left, right]);
+    state.phase = "finished";
+    if (comparison === "left") {
+      state.players.forEach((player) => { player.alive = false; player.life = 0; });
+      state.winnerIds = [];
+    } else {
+      state.players.forEach((player) => {
+        player.alive = player.id === duel.targetPlayerId;
+        player.life = player.alive ? Math.max(1, player.life) : 0;
+      });
+      state.winnerIds = [duel.targetPlayerId];
+    }
   }
   totalRounds += state.actionHistory.length;
   if (state.phase !== "finished") wins.timeout += 1;

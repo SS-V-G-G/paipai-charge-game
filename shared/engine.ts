@@ -2,7 +2,7 @@ import { CARD_DEFINITIONS, LIMITED_STARTING_USES, type CardDefinition, type Card
 import type { GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-export const RULES_VERSION = "2026-09-21.2";
+export const RULES_VERSION = "2026-09-22.1";
 
 function event(
   events: GameEvent[],
@@ -201,16 +201,20 @@ export function resolveRound(
         player.goldenRoosterNext = true;
         break;
       case "pull": {
-        const targetAction = actions.get(action.targetIds[0]);
-        if (targetAction?.cardId === "charge") {
-          clearLife.add(player.id);
-          event(events, "damage", `${player.name}拉中了蓄，生命被清零`, player.id, [player.id], "infinite");
-        } else if (targetAction?.cardId === "small_reflect") {
-          addCharge(player.id, 6);
-        } else if (targetAction?.cardId === "big_reflect") {
-          addCharge(player.id, 12);
+        const otherActions = submitted.filter((item) => item.playerId !== player.id);
+        const chargePlayers = otherActions.filter((item) => item.cardId === "charge").map((item) => item.playerId);
+        if (chargePlayers.length > 0) {
+          if (player.goldenRoosterActive) {
+            event(events, "blocked", `${player.name}处于金鸡独立状态，免疫了拉中蓄的清零`, player.id, chargePlayers, "infinite");
+          } else {
+            clearLife.add(player.id);
+            event(events, "damage", `${player.name}发现全场有人出蓄，生命被清零`, player.id, [player.id], "infinite");
+          }
         } else {
-          addCharge(player.id, 3);
+          const smallReflectCount = otherActions.filter((item) => item.cardId === "small_reflect").length;
+          const bigReflectCount = otherActions.filter((item) => item.cardId === "big_reflect").length;
+          const gainedCharge = smallReflectCount * 6 + bigReflectCount * 12;
+          addCharge(player.id, gainedCharge > 0 ? gainedCharge : 3);
         }
         break;
       }
@@ -235,11 +239,17 @@ export function resolveRound(
     const amount = (CARD_DEFINITIONS[action.cardId] as CardDefinition).damage;
     return amount === "infinite" ? Number.POSITIVE_INFINITY : amount ?? 0;
   };
+  const attacksPlayer = (action: SubmittedAction, targetId: string) => {
+    const card = CARD_DEFINITIONS[action.cardId] as CardDefinition;
+    return card.targetMode === "all-others"
+      ? action.playerId !== targetId
+      : action.targetIds.includes(targetId);
+  };
   for (let leftIndex = 0; leftIndex < attackActions.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < attackActions.length; rightIndex += 1) {
       const left = attackActions[leftIndex];
       const right = attackActions[rightIndex];
-      if (!left.targetIds.includes(right.playerId) || !right.targetIds.includes(left.playerId)) continue;
+      if (!attacksPlayer(left, right.playerId) || !attacksPlayer(right, left.playerId)) continue;
       const leftDamage = numericDamage(left);
       const rightDamage = numericDamage(right);
       const leftCard = CARD_DEFINITIONS[left.cardId] as CardDefinition;
@@ -374,10 +384,22 @@ export function resolveRound(
   state.submittedPlayerIds = [];
 
   const survivors = state.players.filter((player) => player.alive);
-  if (survivors.length <= 1) {
+  if (survivors.length === 0) {
+    const replayState = copy(current);
+    replayState.phase = "selecting";
+    replayState.deadlineAt = null;
+    replayState.submittedPlayerIds = [];
+    replayState.revealedActions = state.revealedActions;
+    replayState.actionHistory = state.actionHistory;
+    replayState.events = state.events;
+    replayState.winnerIds = [];
+    event(replayState.events, "system", "全员同时死亡，本轮作废并重新出牌");
+    return replayState;
+  }
+  if (survivors.length === 1) {
     state.phase = "finished";
     state.winnerIds = survivors.map((player) => player.id);
-    event(state.events, "system", survivors.length === 1 ? `${survivors[0].name}获得胜利` : "所有玩家同时死亡，本局平局", undefined, state.winnerIds);
+    event(state.events, "system", `${survivors[0].name}获得胜利`, undefined, state.winnerIds);
   } else {
     state.phase = "selecting";
     state.round += 1;

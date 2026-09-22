@@ -6,6 +6,7 @@ import { Server, type Socket } from "socket.io";
 import { BOT_STRATEGY_VERSION, chooseBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
 import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
+import { compareRps, deterministicRpsChoice, findRpsDuel, type RpsDuel } from "../shared/rps.js";
 import { databaseHealth, initializeDatabase, recordCompletedGame, trainingGameDiagnostics, trainingStats } from "./database.js";
 import type {
   ClientMessage,
@@ -13,6 +14,7 @@ import type {
   PublicRoomState,
   RoomMode,
   RoomState,
+  RpsChoice,
   ServerMessage,
   SubmittedAction,
 } from "../shared/types.js";
@@ -45,6 +47,7 @@ class GameRoom {
   readonly code: string;
   state: RoomState;
   private submissions = new Map<string, SubmittedAction>();
+  private rpsChoices = new Map<string, RpsChoice>();
   private timer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   private gameId: string | null = null;
@@ -65,6 +68,8 @@ class GameRoom {
       submittedPlayerIds: [],
       revealedActions: [],
       actionHistory: [],
+      rps: null,
+      rpsHistory: [],
       events: [],
       winnerIds: [],
     };
@@ -134,6 +139,9 @@ class GameRoom {
       case "submit":
         this.submitAction(playerId, message.roundId, message.cardId, message.targetIds);
         break;
+      case "rpsSubmit":
+        this.submitRps(playerId, message.duelId, message.choice);
+        break;
       case "playAgain":
         this.returnToLobby(playerId);
         break;
@@ -170,10 +178,13 @@ class GameRoom {
     this.state.submittedPlayerIds = [];
     this.state.revealedActions = [];
     this.state.actionHistory = [];
+    this.state.rps = null;
+    this.state.rpsHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
     this.gameId = crypto.randomUUID();
     this.submissions.clear();
+    this.rpsChoices.clear();
     this.schedule("selecting", 60_000);
     this.queueBotMove();
     this.broadcast();
@@ -198,7 +209,134 @@ class GameRoom {
     this.clearBotTimer();
     const actions = [...this.submissions.values()];
     this.state.revealedActions = actions.map((action) => ({ ...action }));
+    const duel = findRpsDuel(this.state, actions);
+    if (duel) {
+      this.startRps(duel);
+      return;
+    }
     this.resolveNow();
+  }
+
+  private startRps(duel: RpsDuel) {
+    this.rpsChoices.clear();
+    this.state.phase = "rockPaperScissors";
+    this.state.rps = {
+      ...duel,
+      attempt: 1,
+      submittedPlayerIds: [],
+      lastAttemptWasTie: false,
+    };
+    this.state.events = [{
+      id: `rps-start-${this.state.round}`,
+      type: "system",
+      text: "鄙视目标本回合花费了蓄，进入猜拳时间",
+      sourceId: duel.contemptPlayerId,
+      targetIds: [duel.targetPlayerId],
+    }];
+    this.scheduleRpsTimeout();
+    this.queueBotRpsMove();
+    this.broadcast();
+  }
+
+  private submitRps(playerId: string, duelId: string, choice: RpsChoice) {
+    const rps = this.state.rps;
+    if (this.state.phase !== "rockPaperScissors" || !rps) throw new Error("当前不是猜拳阶段");
+    if (rps.duelId !== duelId) throw new Error("猜拳编号已经过期");
+    if (![rps.contemptPlayerId, rps.targetPlayerId].includes(playerId)) throw new Error("你不是本次猜拳参与者");
+    if (!["rock", "paper", "scissors"].includes(choice)) throw new Error("未知猜拳选项");
+    if (this.rpsChoices.has(playerId)) throw new Error("本轮猜拳已经提交");
+
+    this.rpsChoices.set(playerId, choice);
+    rps.submittedPlayerIds.push(playerId);
+    if (this.rpsChoices.size === 2) this.settleRps();
+    else this.broadcast();
+  }
+
+  private settleRps() {
+    const rps = this.state.rps;
+    if (!rps) return;
+    const contemptChoice = this.rpsChoices.get(rps.contemptPlayerId);
+    const targetChoice = this.rpsChoices.get(rps.targetPlayerId);
+    if (!contemptChoice || !targetChoice) return;
+
+    const comparison = compareRps(contemptChoice, targetChoice);
+    const result = comparison === "tie" ? "tie" : comparison === "left" ? "contempt-won" : "target-won";
+    this.state.rpsHistory.push({
+      duelId: rps.duelId,
+      gameRound: this.state.round,
+      attempt: rps.attempt,
+      contemptPlayerId: rps.contemptPlayerId,
+      targetPlayerId: rps.targetPlayerId,
+      choices: [
+        { playerId: rps.contemptPlayerId, choice: contemptChoice },
+        { playerId: rps.targetPlayerId, choice: targetChoice },
+      ],
+      result,
+    });
+
+    if (comparison === "tie") {
+      this.rpsChoices.clear();
+      rps.attempt += 1;
+      rps.submittedPlayerIds = [];
+      rps.lastAttemptWasTie = true;
+      this.state.events.push({
+        id: `rps-tie-${this.state.round}-${rps.attempt - 1}`,
+        type: "system",
+        text: "双方猜拳平局，继续猜拳",
+        targetIds: [rps.contemptPlayerId, rps.targetPlayerId],
+      });
+      this.scheduleRpsTimeout();
+      this.queueBotRpsMove();
+      this.broadcast();
+      return;
+    }
+
+    this.clearTimer();
+    this.clearBotTimer();
+    const contemptPlayerId = rps.contemptPlayerId;
+    const targetPlayerId = rps.targetPlayerId;
+    this.state = resolveRound(this.state, [...this.submissions.values()]);
+    this.state.phase = "finished";
+    this.state.deadlineAt = null;
+    this.state.submittedPlayerIds = [];
+    this.state.rps = null;
+    if (comparison === "left") {
+      for (const player of this.state.players) {
+        player.life = 0;
+        player.alive = false;
+      }
+      this.state.winnerIds = [];
+      this.state.events.push({
+        id: `rps-result-${this.state.round}-${this.state.rpsHistory.length}`,
+        type: "system",
+        text: "鄙视发起者赢得猜拳，本局按规则判为平局",
+        sourceId: contemptPlayerId,
+        targetIds: [targetPlayerId],
+      });
+    } else {
+      for (const player of this.state.players) {
+        if (player.id === targetPlayerId) {
+          player.life = Math.max(1, player.life);
+          player.alive = true;
+        } else {
+          player.life = 0;
+          player.alive = false;
+        }
+      }
+      this.state.winnerIds = [targetPlayerId];
+      const targetName = this.state.players.find((player) => player.id === targetPlayerId)?.name ?? "鄙视目标";
+      this.state.events.push({
+        id: `rps-result-${this.state.round}-${this.state.rpsHistory.length}`,
+        type: "system",
+        text: `鄙视发起者猜拳落败，${targetName}获得胜利`,
+        sourceId: targetPlayerId,
+        targetIds: [contemptPlayerId],
+      });
+    }
+    this.submissions.clear();
+    this.rpsChoices.clear();
+    this.recordFinishedGame();
+    this.broadcast();
   }
 
   private resolveNow() {
@@ -206,11 +344,7 @@ class GameRoom {
     this.state.phase = "resolving";
     this.state = resolveRound(this.state, [...this.submissions.values()]);
     this.submissions.clear();
-    if (this.state.phase === "finished" && this.gameId) {
-      const completedGameId = this.gameId;
-      this.gameId = null;
-      void recordCompletedGame(completedGameId, this.state);
-    }
+    if (this.state.phase === "finished") this.recordFinishedGame();
     if (this.state.phase === "selecting") {
       this.schedule("selecting", 60_000);
       this.queueBotMove();
@@ -231,9 +365,13 @@ class GameRoom {
     this.state.submittedPlayerIds = [];
     this.state.revealedActions = [];
     this.state.actionHistory = [];
+    this.state.rps = null;
+    this.state.rpsHistory = [];
     this.state.events = [];
     this.state.winnerIds = [];
     this.gameId = null;
+    this.rpsChoices.clear();
+    this.clearTimer();
     this.clearBotTimer();
     this.broadcast();
   }
@@ -254,6 +392,51 @@ class GameRoom {
         console.error("AI提交动作失败", error);
       }
     }, 650);
+  }
+
+  private queueBotRpsMove() {
+    this.clearBotTimer();
+    const rps = this.state.rps;
+    if (this.state.mode !== "human-vs-bot" || this.state.phase !== "rockPaperScissors" || !rps) return;
+    const bot = this.state.players.find((player) => player.controller === "bot" && [rps.contemptPlayerId, rps.targetPlayerId].includes(player.id));
+    if (!bot || this.rpsChoices.has(bot.id)) return;
+    const attempt = rps.attempt;
+    const duelId = rps.duelId;
+    const choice = deterministicRpsChoice(this.state.botSeed, `${duelId}:${attempt}:${bot.id}`);
+    this.botTimer = setTimeout(() => {
+      this.botTimer = null;
+      if (this.state.phase !== "rockPaperScissors" || this.state.rps?.duelId !== duelId || this.state.rps.attempt !== attempt) return;
+      try {
+        this.submitRps(bot.id, duelId, choice);
+      } catch (error) {
+        console.error("AI提交猜拳失败", error);
+      }
+    }, 650);
+  }
+
+  private scheduleRpsTimeout() {
+    this.clearTimer();
+    const rps = this.state.rps;
+    if (!rps) return;
+    const attempt = rps.attempt;
+    this.state.deadlineAt = Date.now() + 60_000;
+    this.timer = setTimeout(() => {
+      const current = this.state.rps;
+      if (this.state.phase !== "rockPaperScissors" || !current || current.attempt !== attempt) return;
+      for (const playerId of [current.contemptPlayerId, current.targetPlayerId]) {
+        if (this.rpsChoices.has(playerId)) continue;
+        this.rpsChoices.set(playerId, deterministicRpsChoice(this.state.botSeed, `${current.duelId}:${attempt}:${playerId}:timeout`));
+        current.submittedPlayerIds.push(playerId);
+      }
+      this.settleRps();
+    }, 60_000);
+  }
+
+  private recordFinishedGame() {
+    if (!this.gameId || this.state.phase !== "finished") return;
+    const completedGameId = this.gameId;
+    this.gameId = null;
+    void recordCompletedGame(completedGameId, this.state);
   }
 
   private schedule(phase: "selecting", delay: number) {

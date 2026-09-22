@@ -21,6 +21,8 @@ function botRoom(): RoomState {
     submittedPlayerIds: [],
     revealedActions: [],
     actionHistory: [],
+    rps: null,
+    rpsHistory: [],
     events: [],
     winnerIds: [],
   };

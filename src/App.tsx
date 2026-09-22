@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { io, type Socket } from "socket.io-client";
 import {
   Bolt,
   Bot,
+  BookOpen,
   Check,
   ChevronRight,
-  CircleHelp,
   Copy,
   Crown,
   DoorOpen,
   Heart,
+  GripVertical,
   LogOut,
   Radio,
   Shield,
@@ -27,10 +28,11 @@ import {
   type CardGroup,
   type CardId,
 } from "../shared/cards.js";
-import type { PublicRoomState, ServerMessage } from "../shared/types.js";
+import type { PublicRoomState, RpsChoice, ServerMessage } from "../shared/types.js";
 
 const TOKEN_KEY = "paipai-charge-token";
 const NAME_KEY = "paipai-charge-name";
+const PLAYER_COLORS = ["#5ee0ca", "#ffb547", "#ff7f78", "#b69cff", "#73b7ff", "#e98bd0", "#a8d86e", "#ff9f5a", "#70d5f0", "#f1df72"];
 
 function getToken() {
   const existing = localStorage.getItem(TOKEN_KEY);
@@ -44,6 +46,7 @@ const phaseLabel = {
   lobby: "等待准备",
   selecting: "秘密出牌",
   resolving: "正在结算",
+  rockPaperScissors: "猜拳时间",
   finished: "本局结束",
 } as const;
 
@@ -60,6 +63,8 @@ export default function App() {
   const [targets, setTargets] = useState<string[]>([]);
   const [group, setGroup] = useState<"ALL" | CardGroup>("ALL");
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [rpsChoice, setRpsChoice] = useState<RpsChoice | null>(null);
+  const [playerColorOverrides, setPlayerColorOverrides] = useState<Record<string, string>>({});
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -72,14 +77,22 @@ export default function App() {
     setTargets([]);
   }, [room?.round]);
 
+  useEffect(() => {
+    setRpsChoice(null);
+  }, [room?.rps?.duelId, room?.rps?.attempt]);
+
   useEffect(() => () => {
     socketRef.current?.disconnect();
   }, []);
 
   const me = room?.players.find((player) => player.id === playerId);
   const submitted = !!room?.submittedPlayerIds.includes(playerId);
+  const rpsSubmitted = !!room?.rps?.submittedPlayerIds.includes(playerId) || rpsChoice !== null;
   const otherAlivePlayers = room?.players.filter((player) => player.alive && player.id !== playerId) ?? [];
   const secondsLeft = room?.deadlineAt ? Math.max(0, Math.ceil((room.deadlineAt - now) / 1000)) : null;
+  const playerColors = useMemo(() => Object.fromEntries(
+    (room?.players ?? []).map((player, index) => [player.id, playerColorOverrides[player.id] ?? PLAYER_COLORS[index % PLAYER_COLORS.length]]),
+  ), [room?.players, playerColorOverrides]);
 
   const cards = useMemo(() => {
     const ids: CardId[] = [...BASE_CARD_IDS];
@@ -200,6 +213,21 @@ export default function App() {
     send({ type: "submit", roundId: room.round, cardId: selectedCard, targetIds: targets });
   };
 
+  const submitRps = (choice: RpsChoice) => {
+    if (!room?.rps || rpsSubmitted) return;
+    setRpsChoice(choice);
+    send({ type: "rpsSubmit", duelId: room.rps.duelId, choice });
+  };
+
+  const cyclePlayerColor = (targetPlayerId: string) => {
+    const current = playerColors[targetPlayerId];
+    const currentIndex = PLAYER_COLORS.indexOf(current);
+    setPlayerColorOverrides((overrides) => ({
+      ...overrides,
+      [targetPlayerId]: PLAYER_COLORS[(currentIndex + 1 + PLAYER_COLORS.length) % PLAYER_COLORS.length],
+    }));
+  };
+
   if (!room) {
     return (
       <main className="home-shell">
@@ -267,6 +295,7 @@ export default function App() {
   return (
     <main className="app-shell game-shell">
       <TopBar roomCode={roomCode} connection={connection} onLeave={leaveRoom} />
+      <RoundHistoryWindow room={room} playerColors={playerColors} />
 
       <section className="round-strip">
         <div><span>第 {room.round} 回合</span><strong>{phaseLabel[room.phase]}</strong></div>
@@ -278,21 +307,30 @@ export default function App() {
         {room.players.map((player) => {
           const action = room.revealedActions.find((item) => item.playerId === player.id);
           return (
-            <button
-              className={`player-seat ${player.id === playerId ? "is-me" : ""} ${!player.alive ? "is-dead" : ""} ${targets.includes(player.id) ? "is-target" : ""}`}
+            <div
+              className={`player-seat ${player.id === playerId ? "is-me" : ""} ${!player.alive ? "is-dead" : ""} ${targets.includes(player.id) ? "is-target" : ""} ${player.id !== playerId && player.alive && selectedCard ? "can-target" : ""}`}
               key={player.id}
               onClick={() => player.id !== playerId && player.alive && toggleTarget(player.id)}
-              disabled={player.id === playerId || !player.alive || !selectedCard}
+              role="button"
+              tabIndex={player.id !== playerId && player.alive && selectedCard ? 0 : -1}
+              style={{ "--player-color": playerColors[player.id] } as CSSProperties}
             >
               <span className="avatar small">{player.controller === "bot" ? <Bot size={18} /> : player.name.slice(0, 1)}</span>
               <span className="seat-name">{player.name}{player.id === playerId ? "（你）" : ""}</span>
+              <button className="color-cycle" title={`更换${player.name}的显示颜色`} onClick={(event) => { event.stopPropagation(); cyclePlayerColor(player.id); }} aria-label={`更换${player.name}的显示颜色`} />
               <span className="seat-stats"><Heart size={14} /> {player.life} <Bolt size={14} /> {player.charge}</span>
               <span className="seat-state">
-                {!player.connected ? "掉线" : !player.alive ? "已死亡" : room.submittedPlayerIds.includes(player.id) ? "已提交" : player.controller === "bot" ? "AI思考中" : "选择中"}
+                {!player.connected
+                  ? "掉线"
+                  : !player.alive
+                    ? "已死亡"
+                    : room.phase === "rockPaperScissors"
+                      ? room.rps?.submittedPlayerIds.includes(player.id) ? "已提交猜拳" : "猜拳中"
+                      : room.submittedPlayerIds.includes(player.id) ? "已提交" : player.controller === "bot" ? "AI思考中" : "选择中"}
               </span>
               {player.goldenRoosterActive && <span className="mini-status">金鸡独立</span>}
               {action && <span className="revealed-card">{CARD_DEFINITIONS[action.cardId].name}</span>}
-            </button>
+            </div>
           );
         })}
       </section>
@@ -301,15 +339,41 @@ export default function App() {
         <section className="result-panel">
           <Crown size={38} />
           <p className="eyebrow">牌局结束</p>
-          <h2>{room.winnerIds.length ? `${room.players.find((player) => player.id === room.winnerIds[0])?.name}获胜` : "本局平局"}</h2>
+          <h2>{room.winnerIds.length ? `${room.players.find((player) => player.id === room.winnerIds[0])?.name}获胜` : "鄙视方赢得猜拳，本局平局"}</h2>
           {room.hostId === playerId && <button className="primary-button" onClick={() => send({ type: "playAgain" })}>再来一局</button>}
+        </section>
+      ) : room.phase === "rockPaperScissors" && room.rps ? (
+        <section className="rps-panel">
+          <p className="eyebrow">特殊结算 · 第 {room.rps.attempt} 次</p>
+          <h2>猜拳时间</h2>
+          <p className="rps-copy">
+            {room.players.find((player) => player.id === room.rps?.contemptPlayerId)?.name} 发起鄙视，
+            {room.players.find((player) => player.id === room.rps?.targetPlayerId)?.name} 本轮花费了蓄。
+          </p>
+          {room.rps.lastAttemptWasTie && <p className="rps-tie">上一轮平局，请继续选择</p>}
+          {[room.rps.contemptPlayerId, room.rps.targetPlayerId].includes(playerId) ? (
+            <>
+              <div className="rps-options">
+                {([
+                  ["rock", "✊", "石头"],
+                  ["scissors", "✌️", "剪刀"],
+                  ["paper", "✋", "布"],
+                ] as const).map(([choice, symbol, label]) => (
+                  <button key={choice} className={rpsChoice === choice ? "selected" : ""} disabled={rpsSubmitted} onClick={() => submitRps(choice)}>
+                    <span>{symbol}</span><strong>{label}</strong>
+                  </button>
+                ))}
+              </div>
+              <p className="rps-status">{rpsSubmitted ? "已秘密提交，等待对方" : "选择后立即提交；双方提交前不会公开"}</p>
+            </>
+          ) : <p className="rps-status">你不是本次猜拳参与者，正在等待双方提交。</p>}
         </section>
       ) : (
         <>
           <section className="hand-panel">
             <div className="hand-heading">
               <div><p className="eyebrow">你的手牌</p><h2>{submitted ? "已锁定，等待其他玩家" : selectedCard ? `已选择：${CARD_DEFINITIONS[selectedCard].name}` : "选择本回合要出的牌"}</h2></div>
-              <button className="icon-button" onClick={() => setRulesOpen(true)} aria-label="查看规则"><CircleHelp size={20} /></button>
+              <button className="rules-button" onClick={() => setRulesOpen(true)} aria-label="查看卡牌规则"><BookOpen size={18} /> 卡牌规则</button>
             </div>
             <div className="group-tabs">
               {(["ALL", "B", "C", "D"] as const).map((item) => <button key={item} className={group === item ? "active" : ""} onClick={() => setGroup(item)}>{item === "ALL" ? "全部" : `${item}类`}</button>)}
@@ -323,7 +387,6 @@ export default function App() {
                   <button key={cardId} className={`game-card ${selectedCard === cardId ? "selected" : ""}`} disabled={disabled} onClick={() => chooseCard(cardId)}>
                     <span className="card-cost">{card.cost === 0 ? "免费" : `${card.cost}蓄`}</span>
                     <strong>{card.name}</strong>
-                    <span>{card.description}</span>
                     {remaining !== undefined && <em>剩余 {remaining}</em>}
                     {cardId === "free_big_gun" && <em>持有 {me?.freeBigGuns}</em>}
                   </button>
@@ -377,19 +440,101 @@ function TopBar({ roomCode, connection, onLeave }: { roomCode: string; connectio
   );
 }
 
+function RoundHistoryWindow({ room, playerColors }: { room: PublicRoomState; playerColors: Record<string, string> }) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [position, setPosition] = useState(() => ({
+    x: Math.max(8, window.innerWidth - Math.min(370, window.innerWidth - 16)),
+    y: 82,
+  }));
+
+  const beginDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("button")) return;
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragRef.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const width = panelRef.current?.offsetWidth ?? 350;
+    const height = panelRef.current?.offsetHeight ?? 80;
+    setPosition({
+      x: Math.max(8, Math.min(window.innerWidth - width - 8, event.clientX - drag.offsetX)),
+      y: Math.max(8, Math.min(window.innerHeight - Math.min(height, 80), event.clientY - drag.offsetY)),
+    });
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const playerName = (id: string) => room.players.find((player) => player.id === id)?.name ?? "未知玩家";
+
+  return (
+    <aside ref={panelRef} className={`round-history-window ${collapsed ? "is-collapsed" : ""}`} style={{ left: position.x, top: position.y }}>
+      <div className="round-history-handle" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+        <GripVertical size={18} />
+        <strong>逐回合出牌</strong>
+        <span>{room.actionHistory.length}</span>
+        <button onClick={() => setCollapsed((value) => !value)}>{collapsed ? "展开" : "收起"}</button>
+      </div>
+      {!collapsed && (
+        <div className="round-history-list">
+          {room.actionHistory.length === 0 ? <p>尚无已结算回合</p> : room.actionHistory.slice().reverse().map((record, recordIndex) => (
+            <section key={`${record.round}-${room.actionHistory.length - recordIndex}`}>
+              <h3>第 {record.round} 回合</h3>
+              {record.actions.map((action) => {
+                const targets = action.targetIds.map(playerName);
+                return (
+                  <div className="round-action" key={`${record.round}-${action.playerId}`} style={{ "--player-color": playerColors[action.playerId] } as CSSProperties}>
+                    <strong>{playerName(action.playerId)}</strong>
+                    <span>{CARD_DEFINITIONS[action.cardId].name}{targets.length ? ` → ${targets.join("、")}` : ""}</span>
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
 function RulesDrawer({ onClose }: { onClose: () => void }) {
   return (
     <div className="drawer-backdrop" onClick={onClose}>
       <aside className="rules-drawer" onClick={(event) => event.stopPropagation()}>
         <div className="section-heading"><div><p className="eyebrow">快速参考</p><h2>基础规则</h2></div><button className="icon-button" onClick={onClose}>×</button></div>
         <div className="rule-block"><Shield size={19} /><div><strong>防御</strong><p>小防挡不高于4点；大防挡不高于6点。飞刀、戳可破大防。</p></div></div>
-        <div className="rule-block"><Swords size={19} /><div><strong>攻击对撞</strong><p>两人互相攻击时，大伤害压掉小伤害；伤害相同则双方攻击抵消。</p></div></div>
+        <div className="rule-block"><Swords size={19} /><div><strong>攻击对撞</strong><p>两人互相攻击时（包括散弹、超级飞刀、反鄙视等全场攻击），大伤害压掉小伤害；伤害相同则双方攻击抵消。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>反弹</strong><p>小反反弹1—5点，飞刀和戳不能破小反；大反可反弹反鄙视。</p></div></div>
         <div className="rule-block"><Sparkles size={19} /><div><strong>特殊状态</strong><p>抬枪本轮无敌，但会被大枪破除并受到原伤害。赞的双方本轮无敌、各得1蓄，且只有鄙视能击杀。金鸡独立只会受到散弹、劈、双劈伤害。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>射</strong><p>出牌时必须预先指定目标；若目标本轮出花则直接击杀，亮牌后不能改选。</p></div></div>
         <div className="rule-block"><Bolt size={19} /><div><strong>占星术</strong><p>使用者本轮无敌，之后5轮全场不能出蓄，但仍可通过搓、花、拉获得蓄。</p></div></div>
-        <div className="rule-block"><Radio size={19} /><div><strong>完全可重放</strong><p>结算不使用随机数；相同初始状态、玩家顺序和出牌提交会产生完全相同的结果与事件顺序。</p></div></div>
+        <div className="rule-block"><Swords size={19} /><div><strong>鄙视猜拳</strong><p>1v1时，若鄙视目标本轮使用了需要消耗蓄的牌，双方进入猜拳。平局继续；鄙视方赢则整局平局，鄙视方输则目标获胜。</p></div></div>
+        <div className="rule-block"><Radio size={19} /><div><strong>无普通平局</strong><p>只有鄙视方赢得猜拳时才会产生平局。其他结算若全员同时死亡，该回合作废并重新出牌。</p></div></div>
+        <div className="rule-block"><Radio size={19} /><div><strong>完全可重放</strong><p>相同初始状态、玩家顺序、出牌和猜拳提交会产生完全相同的结果；超时选择也由牌局种子确定。</p></div></div>
         <div className="rule-block"><Bot size={19} /><div><strong>匿名训练数据</strong><p>完成的对局会保存规则版本、AI版本、匿名座位、逐轮动作和胜负，用于离线训练AI；不保存昵称、重连凭证或IP。</p></div></div>
+        <div className="all-card-rules">
+          <p className="eyebrow">完整卡牌效果</p>
+          {(["B", "C", "D"] as const).map((cardGroup) => (
+            <section key={cardGroup}>
+              <h3>{cardGroup}类 · {CARD_GROUP_LABELS[cardGroup]}</h3>
+              {Object.values(CARD_DEFINITIONS).filter((card) => card.group === cardGroup).map((card) => (
+                <article key={card.id}>
+                  <div><strong>{card.name}</strong><span>{card.cost === 0 ? "免费" : `${card.cost}蓄`}</span></div>
+                  <p>{card.description}</p>
+                </article>
+              ))}
+            </section>
+          ))}
+        </div>
         <button className="secondary-button large" onClick={onClose}><DoorOpen size={18} /> 返回牌局</button>
       </aside>
     </div>
