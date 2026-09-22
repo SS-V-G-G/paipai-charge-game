@@ -2,22 +2,40 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerE
 import { io, type Socket } from "socket.io-client";
 import {
   Bolt,
+  Bomb,
   Bot,
   BookOpen,
+  Bird,
   Check,
   ChevronRight,
+  CircleDot,
   Copy,
+  Crosshair,
   Crown,
   DoorOpen,
+  Flower2,
   Flame,
   Heart,
   GripVertical,
   LogOut,
+  MoveRight,
   Radio,
+  Rocket,
+  RotateCcw,
+  ScanLine,
   Shield,
+  ShieldCheck,
   Sparkles,
+  Sun,
+  Sword,
   Swords,
+  Target,
+  Telescope,
+  ThumbsDown,
+  ThumbsUp,
   Users,
+  Waves,
+  Wind,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -26,6 +44,7 @@ import {
   CARD_DEFINITIONS,
   CARD_GROUP_LABELS,
   type BaseCardId,
+  type CardDefinition,
   type CardGroup,
   type CardId,
 } from "../shared/cards.js";
@@ -34,6 +53,12 @@ import type { BotDifficulty, PublicRoomState, RpsChoice, ServerMessage } from ".
 const TOKEN_KEY = "paipai-charge-token";
 const NAME_KEY = "paipai-charge-name";
 const PLAYER_COLORS = ["#5ee0ca", "#ffb547", "#ff7f78", "#b69cff", "#73b7ff", "#e98bd0", "#a8d86e", "#ff9f5a", "#70d5f0", "#f1df72"];
+const HAND_CARD_ORDER: CardId[] = [
+  "charge", "rub", "pull", "small_defense", "flower", "shoot", "push", "praise", "contempt", "golden_rooster",
+  "small_gun", "cannon", "big_defense", "small_reflect", "flying_knife", "raise_gun", "stab", "bull",
+  "shotgun", "big_reflect", "astrology", "big_gun", "free_big_gun", "slash", "backhand_stab", "double_slash",
+  "super_flying_knife", "anti_contempt",
+];
 
 function getToken() {
   const existing = localStorage.getItem(TOKEN_KEY);
@@ -50,6 +75,17 @@ const phaseLabel = {
   rockPaperScissors: "猜拳时间",
   finished: "本局结束",
 } as const;
+
+function cardShortLabel(cardId: CardId) {
+  const card = CARD_DEFINITIONS[cardId] as CardDefinition;
+  if (card.damage === "infinite") return "无限伤害";
+  if (card.damage) return `伤害 ${card.damage}`;
+  if (card.tags?.includes("defense")) return "防御";
+  if (card.tags?.includes("reflect")) return "反弹";
+  if (card.tags?.includes("invincible")) return "无敌";
+  if (card.targetMode === "one-other") return "指定目标";
+  return "特殊行动";
+}
 
 export default function App() {
   const socketRef = useRef<Socket | null>(null);
@@ -98,7 +134,9 @@ export default function App() {
   const cards = useMemo(() => {
     const ids: CardId[] = [...BASE_CARD_IDS];
     if ((me?.freeBigGuns ?? 0) > 0) ids.push("free_big_gun");
-    return ids.filter((id) => group === "ALL" || CARD_DEFINITIONS[id].group === group);
+    return ids
+      .filter((id) => group === "ALL" || CARD_DEFINITIONS[id].group === group)
+      .sort((left, right) => HAND_CARD_ORDER.indexOf(left) - HAND_CARD_ORDER.indexOf(right));
   }, [group, me?.freeBigGuns]);
 
   const send = (message: unknown) => socketRef.current?.emit("game:message", message);
@@ -268,6 +306,7 @@ export default function App() {
 
   if (room.phase === "lobby") {
     const isHost = room.hostId === playerId;
+    const roomBot = room.players.find((player) => player.controller === "bot");
     return (
       <main className="app-shell lobby-shell">
         <TopBar roomCode={roomCode} connection={connection} onLeave={leaveRoom} />
@@ -290,7 +329,7 @@ export default function App() {
             <button className="secondary-button large" onClick={() => send({ type: "ready" })}>{me?.ready ? "取消准备" : "准备"}</button>
             {isHost && <button className="primary-button large" disabled={room.players.length < 2 || room.players.some((player) => !player.ready)} onClick={() => send({ type: "startGame" })}><Swords size={19} /> 开始游戏</button>}
           </div>
-          <p className="hint">{room.mode === "human-vs-bot" ? "准备后开始。AI会在每轮开始时独立决定出牌，不会读取你的暗牌。" : "把房间码发给朋友。所有玩家准备后，由房主开始。"}</p>
+          <p className="hint">{room.mode === "human-vs-bot" ? roomBot?.botDifficulty === "hell" ? "准备后开始。祝你好运。" : "准备后开始。AI会在每轮开始时独立决定出牌。" : "把房间码发给朋友。所有玩家准备后，由房主开始。"}</p>
         </section>
       </main>
     );
@@ -349,28 +388,39 @@ export default function App() {
         </section>
       ) : (
         <>
-          <section className="hand-panel">
-            <div className="hand-heading">
-              <div><p className="eyebrow">你的手牌</p><h2>{submitted ? "已锁定，等待其他玩家" : selectedCard ? `已选择：${CARD_DEFINITIONS[selectedCard].name}` : "选择本回合要出的牌"}</h2></div>
-              <button className="rules-button" onClick={() => setRulesOpen(true)} aria-label="查看卡牌规则"><BookOpen size={18} /> 卡牌规则</button>
-            </div>
-            <div className="group-tabs">
-              {(["ALL", "B", "C", "D"] as const).map((item) => <button key={item} className={group === item ? "active" : ""} onClick={() => setGroup(item)}>{item === "ALL" ? "全部" : `${item}类`}</button>)}
-            </div>
-            <div className="cards-grid">
-              {cards.map((cardId) => {
-                const card = CARD_DEFINITIONS[cardId];
-                const disabled = isCardDisabled(cardId);
-                const remaining = "limit" in card && card.limit !== undefined ? me?.remainingUses[cardId as keyof typeof me.remainingUses] : undefined;
-                return (
-                  <button key={cardId} className={`game-card ${selectedCard === cardId ? "selected" : ""}`} disabled={disabled} onClick={() => chooseCard(cardId)}>
-                    <span className="card-cost">{card.cost === 0 ? "免费" : `${card.cost}蓄`}</span>
-                    <strong>{card.name}</strong>
-                    {remaining !== undefined && <em>剩余 {remaining}</em>}
-                    {cardId === "free_big_gun" && <em>持有 {me?.freeBigGuns}</em>}
-                  </button>
-                );
-              })}
+          <section className="table-controls">
+            <PlayerHud player={me} color={playerColors[playerId]} />
+            <section className="hand-panel">
+              <div className="hand-heading">
+                <div><p className="eyebrow">你的手牌</p><h2>{submitted ? "已锁定，等待其他玩家" : selectedCard ? `已选择：${CARD_DEFINITIONS[selectedCard].name}` : "选择本回合要出的牌"}</h2></div>
+                <button className="rules-button" onClick={() => setRulesOpen(true)} aria-label="查看卡牌规则"><BookOpen size={18} /> 卡牌规则</button>
+              </div>
+              <div className="group-tabs">
+                {(["ALL", "B", "C", "D"] as const).map((item) => <button key={item} className={group === item ? "active" : ""} onClick={() => setGroup(item)}>{item === "ALL" ? "全部卡牌" : CARD_GROUP_LABELS[item]}</button>)}
+              </div>
+              <div className="cards-grid">
+                {cards.map((cardId) => {
+                  const card = CARD_DEFINITIONS[cardId];
+                  const disabled = isCardDisabled(cardId);
+                  const limit = "limit" in card ? card.limit : undefined;
+                  const remaining = limit !== undefined ? me?.remainingUses[cardId as keyof typeof me.remainingUses] : undefined;
+                  return (
+                    <button key={cardId} className={`game-card group-${card.group.toLowerCase()} ${selectedCard === cardId ? "selected" : ""}`} disabled={disabled} onClick={() => chooseCard(cardId)}>
+                      <span className="card-cost">{card.cost === 0 ? "0" : card.cost}</span>
+                      <span className="card-art"><CardGlyph cardId={cardId} /></span>
+                      <strong>{card.name}</strong>
+                      <small>{cardShortLabel(cardId)}</small>
+                      {remaining !== undefined && <em>{remaining}/{limit}</em>}
+                      {cardId === "free_big_gun" && <em>{me?.freeBigGuns}张</em>}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <div className="submit-dock">
+              <div><span>当前蓄</span><strong><Bolt size={18} /> {me?.charge ?? 0}</strong></div>
+              <button className="primary-button submit-button" disabled={!canSubmit} onClick={submit}>{submitted ? <><Check size={19} /> 已提交</> : <>锁定出牌 <ChevronRight size={19} /></>}</button>
             </div>
           </section>
 
@@ -397,10 +447,6 @@ export default function App() {
             </section>
           )}
 
-          <div className="submit-dock">
-            <div><span>当前蓄</span><strong><Bolt size={18} /> {me?.charge ?? 0}</strong></div>
-            <button className="primary-button submit-button" disabled={!canSubmit} onClick={submit}>{submitted ? <><Check size={19} /> 已提交</> : <>锁定出牌 <ChevronRight size={19} /></>}</button>
-          </div>
         </>
       )}
 
@@ -432,6 +478,56 @@ function TopBar({ roomCode, connection, onLeave }: { roomCode: string; connectio
       <button className="icon-button" onClick={onLeave} aria-label="离开房间"><LogOut size={19} /></button>
     </header>
   );
+}
+
+function PlayerHud({ player, color }: { player: PublicRoomState["players"][number] | undefined; color: string | undefined }) {
+  if (!player) return null;
+  return (
+    <aside className="player-hud" style={{ "--player-color": color ?? PLAYER_COLORS[0] } as CSSProperties}>
+      <div className="player-hud-avatar">{player.controller === "bot" ? <Bot size={24} /> : player.name.slice(0, 1)}</div>
+      <div className="player-hud-copy"><strong>{player.name}</strong><span>{player.alive ? "你的状态" : "已出局"}</span></div>
+      <div className="player-hud-stats"><b><Heart size={16} /> {player.life}</b><b><Bolt size={16} /> {player.charge}</b></div>
+      <div className="player-hud-tags">
+        {player.freeBigGuns > 0 && <span>免费大枪 ×{player.freeBigGuns}</span>}
+        {(player.goldenRoosterActive || player.goldenRoosterNext) && <span>金鸡独立</span>}
+      </div>
+    </aside>
+  );
+}
+
+function CardGlyph({ cardId, size = 34 }: { cardId: CardId; size?: number }) {
+  const props = { size, strokeWidth: 1.9 };
+  switch (cardId) {
+    case "charge": return <Sun {...props} />;
+    case "rub": return <Wind {...props} />;
+    case "pull": return <MoveRight {...props} />;
+    case "small_gun": return <Crosshair {...props} />;
+    case "cannon": return <CircleDot {...props} />;
+    case "flying_knife": return <Sword {...props} />;
+    case "stab": return <Target {...props} />;
+    case "bull": return <Bomb {...props} />;
+    case "big_gun":
+    case "free_big_gun": return <Rocket {...props} />;
+    case "shotgun": return <Waves {...props} />;
+    case "slash":
+    case "double_slash":
+    case "backhand_stab":
+    case "super_flying_knife": return <Swords {...props} />;
+    case "anti_contempt": return <Flame {...props} />;
+    case "small_defense":
+    case "big_defense": return <Shield {...props} />;
+    case "small_reflect":
+    case "big_reflect": return <RotateCcw {...props} />;
+    case "raise_gun": return <ScanLine {...props} />;
+    case "astrology": return <Telescope {...props} />;
+    case "flower": return <Flower2 {...props} />;
+    case "shoot": return <Crosshair {...props} />;
+    case "push": return <ShieldCheck {...props} />;
+    case "praise": return <ThumbsUp {...props} />;
+    case "golden_rooster": return <Bird {...props} />;
+    case "contempt": return <ThumbsDown {...props} />;
+    default: return <CircleDot {...props} />;
+  }
 }
 
 interface BoardPosition {
@@ -542,7 +638,6 @@ function PlayerRelationshipBoard({
           const position = positions[index];
           const action = room.revealedActions.find((item) => item.playerId === player.id);
           const card = action ? CARD_DEFINITIONS[action.cardId] : null;
-          const nonDirectedAction = card && card.targetMode === "none" ? card.name : null;
           return (
             <article
               className={`relationship-player ${player.id === playerId ? "is-me" : ""} ${!player.alive ? "is-dead" : ""}`}
@@ -555,7 +650,12 @@ function PlayerRelationshipBoard({
                 <button className="color-cycle" title={`更换${player.name}的显示颜色`} onClick={() => onCycleColor(player.id)} aria-label={`更换${player.name}的显示颜色`} />
               </div>
               <div className="relationship-stats"><span><Heart size={13} /> {player.life}</span><span><Bolt size={13} /> {player.charge}</span></div>
-              {nonDirectedAction && <span className="relationship-action">{nonDirectedAction}</span>}
+              {action && card && (
+                <span className="table-played-card">
+                  <CardGlyph cardId={action.cardId} size={24} />
+                  <b>{card.name}</b>
+                </span>
+              )}
             </article>
           );
         })}
@@ -649,7 +749,7 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
           <p className="eyebrow">完整卡牌效果</p>
           {(["B", "C", "D"] as const).map((cardGroup) => (
             <section key={cardGroup}>
-              <h3>{cardGroup}类 · {CARD_GROUP_LABELS[cardGroup]}</h3>
+              <h3>{CARD_GROUP_LABELS[cardGroup]}</h3>
               {Object.values(CARD_DEFINITIONS).filter((card) => card.group === cardGroup).map((card) => (
                 <article key={card.id}>
                   <div><strong>{card.name}</strong><span>{card.cost === 0 ? "免费" : `${card.cost}蓄`}</span></div>

@@ -196,6 +196,239 @@ h1, h2, p { margin-top: 0; }
 .rules-drawer > .secondary-button { width: 100%; margin-top: 22px; }
 .toast { position: fixed; right: 18px; bottom: 18px; z-index: 200; max-width: min(380px, calc(100% - 36px)); padding: 13px 16px; color: #fff; background: #983e39; border: 1px solid #cf746e; border-radius: 12px; box-shadow: 0 16px 50px #0008; cursor: pointer; }
 
+/* 对局桌面：沿用上下分区的卡牌桌布局，视觉采用原创深海战术台。 */
+.game-shell {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  padding: 8px 16px 30px;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    linear-gradient(rgba(97, 211, 205, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(97, 211, 205, .035) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 38%, #113948 0, #071a23 38%, #050d13 78%);
+  background-size: 34px 34px, 34px 34px, auto;
+}
+.game-shell::before,
+.game-shell::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+.game-shell::before {
+  inset: 11vh 8vw 29vh;
+  border: 1px solid rgba(94, 224, 202, .08);
+  border-radius: 46px;
+  transform: perspective(700px) rotateX(58deg);
+  box-shadow: inset 0 0 80px rgba(94, 224, 202, .04), 0 0 80px rgba(20, 106, 124, .06);
+}
+.game-shell::after {
+  width: 44vw;
+  height: 44vw;
+  top: 21vh;
+  left: 28vw;
+  border: 1px dashed rgba(255, 181, 71, .06);
+  border-radius: 32%;
+  transform: rotate(24deg);
+}
+.game-shell .topbar {
+  min-height: 48px;
+  padding: 5px 10px;
+  border: 1px solid rgba(105, 178, 189, .16);
+  border-radius: 14px;
+  background: rgba(5, 14, 20, .82);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .22);
+}
+.game-shell .round-strip {
+  width: min(760px, calc(100% - 20px));
+  min-height: 54px;
+  margin: 4px auto 0;
+  justify-content: center;
+  padding: 5px 2px;
+}
+.game-shell .round-strip > div { margin-right: 0; text-align: center; }
+.game-shell .round-strip > div span { color: var(--gold); font-weight: 900; letter-spacing: .08em; }
+.game-shell .round-strip > div strong { font-size: 1rem; }
+.game-shell .round-strip .status-chip { margin-left: 12px; }
+.game-shell .round-strip .timer { margin-left: 12px; }
+
+.game-shell .relationship-board {
+  position: relative;
+  padding: 8px 14px 12px;
+  border-color: rgba(72, 143, 154, .2);
+  border-radius: 26px;
+  background: linear-gradient(145deg, rgba(8, 27, 36, .72), rgba(5, 17, 24, .54));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .015), inset 0 -70px 100px rgba(0, 0, 0, .18);
+}
+.game-shell .relationship-board::before {
+  content: "";
+  position: absolute;
+  inset: 20% 24% 17%;
+  border: 1px solid rgba(94, 224, 202, .12);
+  border-radius: 34px;
+  background:
+    linear-gradient(45deg, transparent 49.5%, rgba(94, 224, 202, .07) 50%, transparent 50.5%),
+    linear-gradient(-45deg, transparent 49.5%, rgba(94, 224, 202, .07) 50%, transparent 50.5%),
+    repeating-linear-gradient(90deg, transparent 0 49px, rgba(94, 224, 202, .025) 50px);
+  box-shadow: 0 0 55px rgba(33, 163, 171, .08);
+  transform: perspective(500px) rotateX(52deg);
+}
+.game-shell .relationship-caption { min-height: 36px; position: relative; z-index: 3; }
+.game-shell .relationship-stage { height: clamp(330px, 47vh, 560px); }
+.game-shell .relationship-player {
+  width: clamp(112px, 12vw, 156px);
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--player-color) 72%, #203740);
+  border-radius: 10px 10px 18px 10px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--player-color) 12%, #0b1d26), rgba(5, 17, 23, .96));
+  box-shadow: 7px 8px 0 rgba(0, 0, 0, .15), 0 0 28px color-mix(in srgb, var(--player-color) 10%, transparent);
+}
+.game-shell .relationship-player::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 3px;
+  background: var(--player-color);
+}
+.game-shell .relationship-player.is-me { box-shadow: 0 0 0 2px color-mix(in srgb, var(--player-color) 58%, transparent), 7px 8px 0 rgba(0, 0, 0, .16); }
+.game-shell .relationship-arrow-label { background: #07131aee; }
+.table-played-card {
+  position: absolute;
+  left: 50%;
+  bottom: -67px;
+  width: 62px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 2px;
+  color: var(--player-color);
+  border: 1px solid color-mix(in srgb, var(--player-color) 55%, #233d46);
+  border-radius: 8px 8px 14px 8px;
+  background: linear-gradient(145deg, #132a34, #07171e);
+  box-shadow: 0 10px 26px rgba(0,0,0,.38);
+  transform: translateX(-50%);
+}
+.table-played-card b { max-width: 55px; overflow: hidden; color: #e8f5f3; font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.table-controls {
+  position: relative;
+  z-index: 18;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) 178px;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 10px;
+}
+.player-hud {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--player-color) 55%, #27434c);
+  border-radius: 16px 6px 16px 6px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--player-color) 10%, #10232c), #07171e);
+  box-shadow: inset 4px 0 0 var(--player-color), 0 18px 42px rgba(0,0,0,.24);
+}
+.player-hud-avatar { width: 45px; height: 45px; display: grid; place-items: center; color: #07181e; border-radius: 14px 5px 14px 5px; background: var(--player-color); font-size: 1.15rem; font-weight: 1000; }
+.player-hud-copy { min-width: 0; display: grid; align-content: center; gap: 2px; }
+.player-hud-copy strong { overflow: hidden; color: var(--player-color); text-overflow: ellipsis; white-space: nowrap; }
+.player-hud-copy span { color: var(--muted); font-size: .68rem; }
+.player-hud-stats { grid-column: 1 / -1; display: flex; gap: 7px; }
+.player-hud-stats b { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 6px; border-radius: 8px; color: #dceceb; background: rgba(255,255,255,.045); font-size: .8rem; }
+.player-hud-stats b:first-child { color: #ff8d88; }
+.player-hud-stats b:last-child { color: var(--gold); }
+.player-hud-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+.player-hud-tags span { padding: 3px 6px; border-radius: 6px; color: #b7d7d6; background: #16313a; font-size: .62rem; }
+
+.table-controls .hand-panel {
+  min-width: 0;
+  margin-top: 0;
+  padding: 10px 12px 12px;
+  border-color: rgba(91, 163, 173, .25);
+  border-radius: 14px;
+  background: rgba(7, 21, 28, .92);
+  box-shadow: 0 18px 48px rgba(0,0,0,.26);
+}
+.table-controls .hand-heading { gap: 12px; }
+.table-controls .hand-heading .eyebrow { display: none; }
+.table-controls .hand-heading h2 { font-size: .82rem; }
+.table-controls .rules-button { min-height: 32px; padding: 0 9px; border-radius: 8px; font-size: .72rem; }
+.table-controls .group-tabs { position: absolute; top: -32px; left: 195px; margin: 0; }
+.table-controls .group-tabs button { min-width: max-content; min-height: 27px; padding: 0 9px; border-radius: 7px 7px 0 0; font-size: .65rem; }
+.table-controls .cards-grid {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 4px 2px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-color: #35606a #0a1b22;
+}
+.table-controls .game-card {
+  position: relative;
+  width: 94px;
+  min-width: 94px;
+  height: 128px;
+  min-height: 128px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  padding: 10px 7px 8px;
+  overflow: hidden;
+  color: #dcecea;
+  text-align: center;
+  border: 1px solid #31545e;
+  border-top: 4px solid var(--card-accent, var(--teal));
+  border-radius: 8px 8px 14px 8px;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.035), transparent 45%),
+    linear-gradient(155deg, #17323d, #0a1d25);
+  box-shadow: 5px 7px 0 rgba(0,0,0,.18);
+  scroll-snap-align: start;
+}
+.table-controls .game-card.group-b { --card-accent: #ffb547; }
+.table-controls .game-card.group-c { --card-accent: #b69cff; }
+.table-controls .game-card.group-d { --card-accent: #5ee0ca; }
+.table-controls .game-card::after { content: ""; position: absolute; inset: 5px; border: 1px solid rgba(255,255,255,.035); border-radius: 5px 5px 11px 5px; pointer-events: none; }
+.table-controls .game-card:hover:not(:disabled) { border-color: var(--card-accent); transform: translateY(-5px); }
+.table-controls .game-card.selected { z-index: 2; border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold), 0 14px 28px rgba(255,181,71,.2); transform: translateY(-7px); }
+.table-controls .game-card:disabled { filter: saturate(.35); opacity: .28; }
+.table-controls .card-cost { position: absolute; top: 5px; right: 5px; z-index: 2; min-width: 22px; padding: 3px 5px; color: #07161d; border-radius: 5px; background: var(--card-accent); font-size: .64rem; }
+.card-art { width: 58px; height: 58px; display: grid; place-items: center; margin-top: 6px; color: var(--card-accent); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--card-accent) 16%, transparent), transparent 68%); }
+.table-controls .game-card strong { z-index: 1; margin-top: 0; font-size: .9rem; }
+.table-controls .game-card small { z-index: 1; color: #83a4a8; font-size: .58rem; }
+.table-controls .game-card em { position: absolute; left: 5px; bottom: 5px; z-index: 2; margin: 0; padding: 2px 5px; color: var(--card-accent); border-radius: 5px; background: #07161dcc; font-size: .58rem; }
+
+.table-controls .submit-dock {
+  position: static;
+  margin: 0;
+  grid-template-columns: 1fr;
+  justify-content: stretch;
+  align-content: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 6px 16px 6px 16px;
+  background: rgba(7, 21, 28, .94);
+}
+.table-controls .submit-dock > div { justify-items: center; }
+.table-controls .submit-dock strong { font-size: 1.45rem; }
+.table-controls .submit-button { min-width: 0; min-height: 52px; padding: 0 10px; }
+
+.game-shell > .log-panel { margin-top: 10px; padding: 12px 16px; border-radius: 14px; background: rgba(7, 21, 28, .76); }
+.game-shell > .log-panel .event-list { max-height: 110px; }
+.game-shell > .result-panel,
+.game-shell > .rps-panel { position: relative; z-index: 16; width: min(760px, 100%); margin: -120px auto 30px; backdrop-filter: blur(20px); }
+.game-shell .target-picker { bottom: 18px; background: rgba(5, 18, 24, .98); }
+
 @media (max-width: 720px) {
   .home-shell { padding: 14px; }
   .home-card { padding: 27px 20px; border-radius: 22px; }
@@ -234,4 +467,55 @@ h1, h2, p { margin-top: 0; }
   .game-card { min-height: 88px; }
   .relationship-stage { height: 310px; }
   .relationship-player { width: 96px; }
+}
+
+@media (max-width: 980px) {
+  .table-controls { grid-template-columns: 150px minmax(0, 1fr) 150px; }
+  .table-controls .group-tabs { left: 165px; }
+  .table-controls .game-card { width: 88px; min-width: 88px; }
+}
+
+@media (max-width: 720px) {
+  .game-shell { padding: 6px 8px 18px; }
+  .game-shell::before { inset: 15vh 3vw 38vh; }
+  .game-shell::after { width: 70vw; height: 70vw; top: 24vh; left: 15vw; }
+  .game-shell .topbar { grid-template-columns: 1fr auto auto; padding-inline: 7px; }
+  .game-shell .round-strip { min-height: 48px; }
+  .game-shell .round-strip > div strong { font-size: .88rem; }
+  .game-shell .relationship-board { padding: 8px 6px 10px; border-radius: 18px; }
+  .game-shell .relationship-board::before { inset: 24% 17% 20%; }
+  .game-shell .relationship-stage { height: clamp(320px, 46vh, 430px); }
+  .game-shell .relationship-player { width: 102px; min-height: 60px; }
+  .table-played-card { bottom: -60px; width: 56px; height: 52px; }
+
+  .table-controls { grid-template-columns: 1fr; gap: 7px; }
+  .player-hud { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 10px; border-radius: 13px 5px 13px 5px; }
+  .player-hud-avatar { width: 39px; height: 39px; }
+  .player-hud-stats { grid-column: 3; grid-row: 1; align-self: center; }
+  .player-hud-stats b { min-width: 48px; }
+  .player-hud-tags { grid-column: 1 / -1; }
+  .table-controls .hand-panel { padding: 9px 9px 10px; }
+  .table-controls .group-tabs { position: static; margin: 8px 0 0; }
+  .table-controls .group-tabs button { min-height: 28px; border-radius: 7px; }
+  .table-controls .game-card { width: 86px; min-width: 86px; height: 122px; min-height: 122px; }
+  .card-art { width: 52px; height: 52px; }
+  .table-controls .submit-dock { grid-template-columns: auto minmax(170px, 1fr); padding: 8px 10px; }
+  .table-controls .submit-dock > div { min-width: 58px; }
+  .table-controls .submit-dock strong { font-size: 1.15rem; }
+  .table-controls .submit-button { min-height: 46px; }
+  .game-shell > .log-panel { padding: 10px 12px; }
+  .game-shell > .result-panel,
+  .game-shell > .rps-panel { margin: -70px auto 20px; }
+}
+
+@media (max-height: 700px) and (min-width: 721px) {
+  .game-shell .relationship-stage { height: 255px; }
+  .game-shell .relationship-player { min-height: 58px; }
+  .table-controls .game-card { height: 112px; min-height: 112px; }
+  .card-art { width: 44px; height: 44px; }
+  .table-controls .game-card small { display: none; }
+  .table-controls .hand-panel { padding-block: 7px; }
+  .table-controls .cards-grid { margin-top: 5px; padding-bottom: 3px; }
+  .player-hud { padding: 8px 10px; }
+  .game-shell > .log-panel { display: none; }
 }

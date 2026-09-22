@@ -65,7 +65,7 @@ export const LIMITED_STARTING_USES: Record<LimitedCardId, number> = {
 };
 
 export const CARD_GROUP_LABELS: Record<CardGroup, string> = {
-  B: "耗蓄 · 无限",
-  C: "免费 · 有限",
-  D: "免费 · 无限",
+  B: "消耗蓄 · 无限次",
+  C: "无消耗 · 有限次",
+  D: "无消耗 · 无限次",
 };
