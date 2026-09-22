@@ -154,7 +154,7 @@ class GameRoom {
 
   sendInitial(socket: Socket, playerId: string) {
     this.sendSocket(socket, { type: "welcome", playerId, roomCode: this.code });
-    this.sendSocket(socket, { type: "state", state: this.publicState() });
+    this.sendSocket(socket, { type: "state", state: this.publicState(playerId) });
   }
 
   private toggleReady(playerId: string) {
@@ -536,11 +536,19 @@ class GameRoom {
     this.botTimer = null;
   }
 
-  private publicState(): PublicRoomState {
-    return {
+  private publicState(viewerId: string): PublicRoomState {
+    const viewer = this.state.players.find((player) => player.id === viewerId);
+    const canPeek = viewer?.name === "justdabin" && this.state.phase === "selecting";
+    const publicState: PublicRoomState = {
       ...this.state,
       players: this.state.players.map(({ reconnectToken: _token, ...player }) => player),
     };
+    if (canPeek) {
+      publicState.peekedActions = [...this.submissions.values()]
+        .filter((action) => action.playerId !== viewerId)
+        .map((action) => ({ ...action, targetIds: [...action.targetIds] }));
+    }
+    return publicState;
   }
 
   private sendSocket(socket: Socket, message: ServerMessage) {
@@ -548,7 +556,12 @@ class GameRoom {
   }
 
   broadcast() {
-    io.to(this.code).emit("game:message", { type: "state", state: this.publicState() } satisfies ServerMessage);
+    for (const player of this.state.players) {
+      io.to(`player:${player.id}`).emit("game:message", {
+        type: "state",
+        state: this.publicState(player.id),
+      } satisfies ServerMessage);
+    }
   }
 }
 

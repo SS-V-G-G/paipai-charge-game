@@ -14,6 +14,7 @@
     "test": "vitest run",
     "smoke:bot": "node tests/smoke-bot.mjs",
     "smoke:hell": "node tests/smoke-hell.mjs",
+    "smoke:cheat": "node tests/smoke-cheat.mjs",
     "smoke:rps": "node tests/smoke-rps.mjs",
     "smoke:training": "node tests/smoke-training.mjs",
     "self-play": "tsx scripts/self-play.ts",

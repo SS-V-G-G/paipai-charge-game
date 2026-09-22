@@ -93,6 +93,7 @@ export interface RoomState {
 
 export interface PublicRoomState extends Omit<RoomState, "players"> {
   players: PlayerState[];
+  peekedActions?: PublicAction[];
 }
 
 export type ClientMessage =

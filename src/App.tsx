@@ -578,12 +578,13 @@ function PlayerRelationshipBoard({
   playerColors: Record<string, string>;
   onCycleColor: (playerId: string) => void;
 }) {
+  const boardActions = room.peekedActions?.length ? room.peekedActions : room.revealedActions;
   const positions = boardPositions(room.players.length);
   const positionByPlayer = new Map(room.players.map((player, index) => [player.id, positions[index]]));
   const indexByPlayer = new Map(room.players.map((player, index) => [player.id, index]));
-  const roundParticipants = new Set(room.revealedActions.map((action) => action.playerId));
+  const roundParticipants = new Set(boardActions.map((action) => action.playerId));
   const displayedRound = room.actionHistory.at(-1)?.round;
-  const arrows = room.revealedActions.flatMap((action) => {
+  const arrows = boardActions.flatMap((action) => {
     const card = CARD_DEFINITIONS[action.cardId];
     const targetIds = card.targetMode === "all-others"
       ? room.players.filter((player) => player.id !== action.playerId && roundParticipants.has(player.id)).map((player) => player.id)
@@ -636,7 +637,7 @@ function PlayerRelationshipBoard({
 
         {room.players.map((player, index) => {
           const position = positions[index];
-          const action = room.revealedActions.find((item) => item.playerId === player.id);
+          const action = boardActions.find((item) => item.playerId === player.id);
           const card = action ? CARD_DEFINITIONS[action.cardId] : null;
           return (
             <article
