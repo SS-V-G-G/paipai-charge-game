@@ -76,6 +76,13 @@ const phaseLabel = {
   finished: "本局结束",
 } as const;
 
+function PlayerAvatar({ player, botSize = 18 }: { player: PublicRoomState["players"][number]; botSize?: number }) {
+  if (player.name === "justdabin") {
+    return <img className="justdabin-avatar" src="/justdabin-avatar.jpg" alt="" draggable={false} />;
+  }
+  return player.controller === "bot" ? <Bot size={botSize} /> : player.name.slice(0, 1);
+}
+
 function cardShortLabel(cardId: CardId) {
   const card = CARD_DEFINITIONS[cardId] as CardDefinition;
   if (card.damage === "infinite") return "无限伤害";
@@ -318,7 +325,7 @@ export default function App() {
           <div className="lobby-list">
             {room.players.map((player, index) => (
               <div className="lobby-player" key={player.id}>
-                <span className="avatar">{player.controller === "bot" ? <Bot size={21} /> : player.name.slice(0, 1)}</span>
+                <span className="avatar"><PlayerAvatar player={player} botSize={21} /></span>
                 <div className="player-copy"><strong>{player.name}</strong><span>{player.controller === "bot" ? player.botDifficulty === "hell" ? "地狱难度" : "基础策略AI" : player.connected ? "在线" : "等待重连"}</span></div>
                 {player.id === room.hostId && <Crown className="host-crown" size={19} />}
                 <span className={`ready-pill ${player.ready ? "is-ready" : ""}`}>{player.controller === "bot" ? "AI已就绪" : player.ready ? "已准备" : index === 0 ? "房主" : "未准备"}</span>
@@ -438,7 +445,7 @@ export default function App() {
                     onClick={() => toggleTarget(player.id)}
                     style={{ "--player-color": playerColors[player.id] } as CSSProperties}
                   >
-                    <span>{player.controller === "bot" ? <Bot size={14} /> : player.name.slice(0, 1)}</span>
+                    <span><PlayerAvatar player={player} botSize={14} /></span>
                     {player.name}
                   </button>
                 ))}
@@ -484,7 +491,7 @@ function PlayerHud({ player, color }: { player: PublicRoomState["players"][numbe
   if (!player) return null;
   return (
     <aside className="player-hud" style={{ "--player-color": color ?? PLAYER_COLORS[0] } as CSSProperties}>
-      <div className="player-hud-avatar">{player.controller === "bot" ? <Bot size={24} /> : player.name.slice(0, 1)}</div>
+      <div className="player-hud-avatar"><PlayerAvatar player={player} botSize={24} /></div>
       <div className="player-hud-copy"><strong>{player.name}</strong><span>{player.alive ? "你的状态" : "已出局"}</span></div>
       <div className="player-hud-stats"><b><Heart size={16} /> {player.life}</b><b><Bolt size={16} /> {player.charge}</b></div>
       <div className="player-hud-tags">
@@ -646,7 +653,7 @@ function PlayerRelationshipBoard({
               style={{ left: `${position.x}%`, top: `${position.y}%`, "--player-color": playerColors[player.id] } as CSSProperties}
             >
               <div className="relationship-player-main">
-                <span className="relationship-avatar">{player.controller === "bot" ? <Bot size={16} /> : player.name.slice(0, 1)}</span>
+                <span className="relationship-avatar"><PlayerAvatar player={player} botSize={16} /></span>
                 <strong>{player.name}{player.id === playerId ? "（你）" : ""}</strong>
                 <button className="color-cycle" title={`更换${player.name}的显示颜色`} onClick={() => onCycleColor(player.id)} aria-label={`更换${player.name}的显示颜色`} />
               </div>

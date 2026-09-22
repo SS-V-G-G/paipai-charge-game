@@ -68,6 +68,7 @@ h1, h2, p { margin-top: 0; }
 .lobby-player { min-height: 68px; display: flex; align-items: center; gap: 13px; padding: 10px 13px; background: #0b1c22; border: 1px solid #23464f; border-radius: 14px; }
 .avatar { width: 42px; height: 42px; flex: none; display: grid; place-items: center; border-radius: 13px; color: #092126; background: var(--teal); font-weight: 900; }
 .avatar.small { width: 35px; height: 35px; border-radius: 11px; }
+.justdabin-avatar { width: 100%; height: 100%; display: block; border-radius: inherit; object-fit: cover; object-position: center; user-select: none; }
 .player-copy { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .player-copy span { color: var(--muted); font-size: .8rem; }
 .host-crown { color: var(--gold); }
