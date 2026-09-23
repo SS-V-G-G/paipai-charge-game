@@ -32,6 +32,11 @@ export interface SubmittedAction {
   targetIds: string[];
 }
 
+export interface CardPlay {
+  cardId: CardId;
+  targetIds: string[];
+}
+
 export interface PublicAction {
   playerId: string;
   cardId: CardId;
@@ -99,7 +104,7 @@ export interface PublicRoomState extends Omit<RoomState, "players"> {
 export type ClientMessage =
   | { type: "ready" }
   | { type: "startGame" }
-  | { type: "submit"; roundId: number; cardId: CardId; targetIds: string[] }
+  | { type: "submit"; roundId: number; plays?: CardPlay[]; cardId?: CardId; targetIds?: string[] }
   | { type: "rpsSubmit"; duelId: string; choice: RpsChoice }
   | { type: "playAgain" };
 

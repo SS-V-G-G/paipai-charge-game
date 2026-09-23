@@ -396,6 +396,7 @@ h1, h2, p { margin-top: 0; }
   box-shadow: 5px 7px 0 rgba(0,0,0,.18);
   scroll-snap-align: start;
 }
+.table-controls .game-card.group-a { --card-accent: #ff7f78; }
 .table-controls .game-card.group-b { --card-accent: #ffb547; }
 .table-controls .game-card.group-c { --card-accent: #b69cff; }
 .table-controls .game-card.group-d { --card-accent: #5ee0ca; }

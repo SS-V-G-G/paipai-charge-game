@@ -35,12 +35,13 @@ export function deterministicRpsChoice(seed: number, key: string): RpsChoice {
 
 export function findRpsDuel(state: RoomState, actions: SubmittedAction[]): RpsDuel | null {
   if (state.players.filter((player) => player.alive).length !== 2) return null;
-  const actionByPlayer = new Map(actions.map((action) => [action.playerId, action]));
   for (const action of actions) {
     if (action.cardId !== "contempt") continue;
     const targetPlayerId = action.targetIds[0];
-    const targetAction = actionByPlayer.get(targetPlayerId);
-    if (!targetAction || CARD_DEFINITIONS[targetAction.cardId].cost <= 0) continue;
+    const targetSpentCharge = actions.some((targetAction) => (
+      targetAction.playerId === targetPlayerId && CARD_DEFINITIONS[targetAction.cardId].cost > 0
+    ));
+    if (!targetSpentCharge) continue;
     return {
       duelId: `rps-${state.round}-${action.playerId}-${targetPlayerId}`,
       contemptPlayerId: action.playerId,

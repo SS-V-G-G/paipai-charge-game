@@ -1,8 +1,8 @@
-import { CARD_DEFINITIONS, LIMITED_STARTING_USES, type CardDefinition, type CardId } from "./cards.js";
-import type { GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
+import { CARD_DEFINITIONS, LIMITED_STARTING_USES, isCombinableAttack, type CardDefinition, type CardId } from "./cards.js";
+import type { CardPlay, GameEvent, PlayerController, PlayerPrivateState, RoomState, SubmittedAction } from "./types.js";
 
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-export const RULES_VERSION = "2026-09-22.2";
+export const RULES_VERSION = "2026-09-23.1";
 
 function event(
   events: GameEvent[],
@@ -83,12 +83,36 @@ export function validateAction(
   const legalIds = new Set(aliveOthers.map((item) => item.id));
   if (uniqueTargets.some((id) => !legalIds.has(id))) return "包含无效目标";
 
-  if (card.targetMode === "one-other" && uniqueTargets.length !== 1) return "请选择一名目标";
-  if (card.targetMode === "two-others" && uniqueTargets.length !== 2) return "请选择两名不同目标";
-  if (["none", "all-others"].includes(card.targetMode) && uniqueTargets.length !== 0) {
+  if (card.targetMode === "one-other" && targetIds.length !== 1) return "请选择一名目标";
+  if (card.targetMode === "two-others" && (targetIds.length !== 2 || uniqueTargets.length !== 2)) return "请选择两名不同目标";
+  if (["none", "all-others"].includes(card.targetMode) && targetIds.length !== 0) {
     return "这张牌不应在提交时指定目标";
   }
   if (card.targetMode === "two-others" && aliveOthers.length < 2) return "场上没有足够的合法目标";
+  return null;
+}
+
+export function validateSubmission(
+  state: RoomState,
+  playerId: string,
+  plays: CardPlay[],
+): string | null {
+  if (plays.length === 0) return "请至少选择一张牌";
+  if (plays.length > 1 && plays.some((play) => !isCombinableAttack(play.cardId))) {
+    return "只有指向性攻击牌可以组合出牌，劈和射必须单独使用";
+  }
+  const cardIds = plays.map((play) => play.cardId);
+  if (new Set(cardIds).size !== cardIds.length) return "同一回合不能重复使用同一种攻击牌";
+  for (const play of plays) {
+    const error = validateAction(state, playerId, play.cardId, play.targetIds);
+    if (error) return error;
+  }
+  const player = state.players.find((item) => item.id === playerId);
+  if (!player) return "玩家不存在";
+  const totalCost = plays.reduce((sum, play) => sum + CARD_DEFINITIONS[play.cardId].cost, 0);
+  if (player.charge < totalCost) return `蓄不足：组合出牌共需${totalCost}蓄`;
+  const freeBigGunCount = plays.filter((play) => play.cardId === "free_big_gun").length;
+  if (freeBigGunCount > player.freeBigGuns) return "免费大枪数量不足";
   return null;
 }
 
@@ -106,9 +130,12 @@ export function resolveRound(
 ): RoomState {
   const state = copy(current);
   const playerOrder = new Map(state.players.map((player, index) => [player.id, index]));
-  submitted = submitted.slice().sort(
-    (left, right) => (playerOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (playerOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER),
-  );
+  submitted = submitted.slice().sort((left, right) => {
+    const playerDifference = (playerOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER) - (playerOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER);
+    if (playerDifference !== 0) return playerDifference;
+    const cardDifference = left.cardId.localeCompare(right.cardId);
+    return cardDifference !== 0 ? cardDifference : left.targetIds.join(",").localeCompare(right.targetIds.join(","));
+  });
   const events: GameEvent[] = [];
   const actions = new Map(submitted.map((action) => [action.playerId, action]));
   const players = new Map(state.players.map((player) => [player.id, player]));
@@ -191,7 +218,6 @@ export function resolveRound(
         event(events, "resource", `${player.name}获得了一张免费大枪`, player.id);
         break;
       case "praise":
-        addCharge(player.id, 1);
         for (const targetId of action.targetIds) addCharge(targetId, 1);
         break;
       case "astrology":
@@ -245,19 +271,24 @@ export function resolveRound(
       ? action.playerId !== targetId
       : action.targetIds.includes(targetId);
   };
-  for (let leftIndex = 0; leftIndex < attackActions.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < attackActions.length; rightIndex += 1) {
-      const left = attackActions[leftIndex];
-      const right = attackActions[rightIndex];
-      if (!attacksPlayer(left, right.playerId) || !attacksPlayer(right, left.playerId)) continue;
+  const attackingPlayerIds = [...new Set(attackActions.map((action) => action.playerId))];
+  for (let leftIndex = 0; leftIndex < attackingPlayerIds.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < attackingPlayerIds.length; rightIndex += 1) {
+      const leftPlayerId = attackingPlayerIds[leftIndex];
+      const rightPlayerId = attackingPlayerIds[rightIndex];
+      const leftAttacks = attackActions.filter((action) => action.playerId === leftPlayerId && attacksPlayer(action, rightPlayerId));
+      const rightAttacks = attackActions.filter((action) => action.playerId === rightPlayerId && attacksPlayer(action, leftPlayerId));
+      if (leftAttacks.length === 0 || rightAttacks.length === 0) continue;
+      const left = leftAttacks.reduce((strongest, action) => numericDamage(action) > numericDamage(strongest) ? action : strongest);
+      const right = rightAttacks.reduce((strongest, action) => numericDamage(action) > numericDamage(strongest) ? action : strongest);
       const leftDamage = numericDamage(left);
       const rightDamage = numericDamage(right);
       const leftCard = CARD_DEFINITIONS[left.cardId] as CardDefinition;
       const rightCard = CARD_DEFINITIONS[right.cardId] as CardDefinition;
       if (leftDamage === rightDamage) {
-        suppressedAttackers.add(left.playerId);
-        suppressedAttackers.add(right.playerId);
-        event(events, "clash", `${players.get(left.playerId)?.name}的${leftCard.name}与${players.get(right.playerId)?.name}的${rightCard.name}伤害相同，双方攻击抵消`, left.playerId, [right.playerId]);
+        suppressedAttackers.add(leftPlayerId);
+        suppressedAttackers.add(rightPlayerId);
+        event(events, "clash", `${players.get(leftPlayerId)?.name}的${leftCard.name}与${players.get(rightPlayerId)?.name}的${rightCard.name}伤害相同，双方攻击抵消`, leftPlayerId, [rightPlayerId]);
       } else {
         const winner = leftDamage > rightDamage ? left : right;
         const loser = winner === left ? right : left;
@@ -316,6 +347,11 @@ export function resolveRound(
     const target = players.get(damage.targetId)!;
     const targetAction = actions.get(target.id);
     const amountNumber = damage.amount === "infinite" ? Number.POSITIVE_INFINITY : damage.amount;
+
+    if (["big_gun", "free_big_gun"].includes(damage.cardId) && targetAction?.cardId === "charge") {
+      event(events, "blocked", `${players.get(damage.sourceId)?.name}的大枪打中了${target.name}的蓄，造成0点伤害`, damage.sourceId, [target.id], 0);
+      continue;
+    }
 
     if (targetAction?.cardId === "small_defense" && amountNumber <= 4) {
       event(events, "blocked", `${target.name}的小防挡住了伤害`, damage.sourceId, [target.id], damage.amount);

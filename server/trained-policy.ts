@@ -5,8 +5,8 @@ import { RULES_VERSION } from "../shared/engine.js";
 import { TRAINING_SCHEMA_VERSION, TRAINING_STYLES, chooseTrainedAction, type TrainedPolicyModel, type TrainingStyle } from "../shared/training.js";
 import type { RoomState, SubmittedAction } from "../shared/types.js";
 
-export const TRAINED_BOT_STRATEGY_VERSION = "styled-policy-v2-10k";
-const defaultModelPath = resolve(process.cwd(), "models/styled-policy-v2-10k.json");
+export const TRAINED_BOT_STRATEGY_VERSION = "styled-policy-v3-10k";
+const defaultModelPath = resolve(process.cwd(), "models/styled-policy-v3-10k.json");
 const modelPath = process.env.BASIC_AI_MODEL_PATH?.trim() || defaultModelPath;
 
 let model: TrainedPolicyModel | null = null;

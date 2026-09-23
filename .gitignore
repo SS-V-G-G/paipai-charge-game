@@ -6,4 +6,4 @@ dist
 *.log
 training-data/*.jsonl
 models/*.json
-!models/styled-policy-v2-10k.json
+!models/styled-policy-v3-10k.json

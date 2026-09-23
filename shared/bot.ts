@@ -12,6 +12,7 @@ const LIMITED_CARD_VALUE: Record<LimitedCardId, number> = {
   push: 10,
   praise: 8,
   golden_rooster: 6,
+  pull: 7,
 };
 
 export interface BotDecision {
@@ -151,15 +152,18 @@ export function chooseBotAction(
 export function chooseHellBotAction(
   state: RoomState,
   botId: string,
-  opponentAction: SubmittedAction,
+  opponentSubmission: SubmittedAction | SubmittedAction[],
 ): BotDecision {
   const botActions = enumerateLegalActions(state, botId);
   const opponent = state.players.find((item) => item.alive && item.id !== botId);
   if (!opponent || botActions.length === 0) throw new Error("地狱AI当前没有合法动作");
-  if (opponentAction.playerId !== opponent.id) throw new Error("对手动作与当前玩家不匹配");
+  const opponentActions = Array.isArray(opponentSubmission) ? opponentSubmission : [opponentSubmission];
+  if (opponentActions.length === 0 || opponentActions.some((action) => action.playerId !== opponent.id)) {
+    throw new Error("对手动作与当前玩家不匹配");
+  }
 
   const ranked = botActions.map((botAction) => {
-    const actions = [opponentAction, botAction];
+    const actions = [...opponentActions, botAction];
     const duel = findRpsDuel(state, actions);
     let score: number;
 

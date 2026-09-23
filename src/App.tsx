@@ -43,12 +43,13 @@ import {
   BASE_CARD_IDS,
   CARD_DEFINITIONS,
   CARD_GROUP_LABELS,
+  isCombinableAttack,
   type BaseCardId,
   type CardDefinition,
   type CardGroup,
   type CardId,
 } from "../shared/cards.js";
-import type { BotDifficulty, PublicRoomState, RpsChoice, ServerMessage } from "../shared/types.js";
+import type { BotDifficulty, CardPlay, PublicRoomState, RpsChoice, ServerMessage } from "../shared/types.js";
 
 const TOKEN_KEY = "paipai-charge-token";
 const NAME_KEY = "paipai-charge-name";
@@ -104,7 +105,7 @@ export default function App() {
   const [connection, setConnection] = useState<"offline" | "connecting" | "online">("offline");
   const [error, setError] = useState("");
   const [selectedCard, setSelectedCard] = useState<CardId | null>(null);
-  const [targets, setTargets] = useState<string[]>([]);
+  const [selectedPlays, setSelectedPlays] = useState<CardPlay[]>([]);
   const [group, setGroup] = useState<"ALL" | CardGroup>("ALL");
   const [rulesOpen, setRulesOpen] = useState(false);
   const [rpsChoice, setRpsChoice] = useState<RpsChoice | null>(null);
@@ -118,7 +119,7 @@ export default function App() {
 
   useEffect(() => {
     setSelectedCard(null);
-    setTargets([]);
+    setSelectedPlays([]);
   }, [room?.round]);
 
   useEffect(() => {
@@ -133,6 +134,8 @@ export default function App() {
   const submitted = !!room?.submittedPlayerIds.includes(playerId);
   const rpsSubmitted = !!room?.rps?.submittedPlayerIds.includes(playerId) || rpsChoice !== null;
   const otherAlivePlayers = room?.players.filter((player) => player.alive && player.id !== playerId) ?? [];
+  const selectedTargets = selectedPlays.find((play) => play.cardId === selectedCard)?.targetIds ?? [];
+  const selectedCost = selectedPlays.reduce((sum, play) => sum + CARD_DEFINITIONS[play.cardId].cost, 0);
   const secondsLeft = room?.deadlineAt ? Math.max(0, Math.ceil((room.deadlineAt - now) / 1000)) : null;
   const playerColors = useMemo(() => Object.fromEntries(
     (room?.players ?? []).map((player, index) => [player.id, playerColorOverrides[player.id] ?? PLAYER_COLORS[index % PLAYER_COLORS.length]]),
@@ -211,32 +214,54 @@ export default function App() {
     setPlayerId("");
     setConnection("offline");
     setSelectedCard(null);
-    setTargets([]);
+    setSelectedPlays([]);
     location.hash = "";
   };
 
   const chooseCard = (cardId: CardId) => {
     if (!me || submitted || room?.phase !== "selecting") return;
+    const play: CardPlay = { cardId, targetIds: [] };
+    setSelectedPlays((current) => {
+      if (!isCombinableAttack(cardId)) return [play];
+      const combinableCurrent = current.every((item) => isCombinableAttack(item.cardId));
+      if (!combinableCurrent) return [play];
+      return current.some((item) => item.cardId === cardId) ? current : [...current, play];
+    });
     setSelectedCard(cardId);
-    setTargets([]);
     setError("");
   };
 
   const toggleTarget = (targetId: string) => {
     if (!selectedCard) return;
     const mode = CARD_DEFINITIONS[selectedCard].targetMode;
-    if (mode === "one-other") return setTargets([targetId]);
-    if (mode === "two-others") {
-      setTargets((current) => current.includes(targetId)
-        ? current.filter((id) => id !== targetId)
-        : current.length < 2 ? [...current, targetId] : [current[1], targetId]);
-    }
+    setSelectedPlays((current) => current.map((play) => {
+      if (play.cardId !== selectedCard) return play;
+      if (mode === "one-other") return { ...play, targetIds: [targetId] };
+      if (mode === "two-others") {
+        return {
+          ...play,
+          targetIds: play.targetIds.includes(targetId)
+            ? play.targetIds.filter((id) => id !== targetId)
+            : play.targetIds.length < 2 ? [...play.targetIds, targetId] : [play.targetIds[1], targetId],
+        };
+      }
+      return play;
+    }));
+  };
+
+  const removeSelectedCard = () => {
+    if (!selectedCard) return;
+    const remaining = selectedPlays.filter((play) => play.cardId !== selectedCard);
+    setSelectedPlays(remaining);
+    setSelectedCard(remaining.at(-1)?.cardId ?? null);
   };
 
   const isCardDisabled = (cardId: CardId) => {
     if (!me || room?.phase !== "selecting" || submitted || !me.alive) return true;
     const card = CARD_DEFINITIONS[cardId];
-    if (me.charge < card.cost) return true;
+    const alreadySelected = selectedPlays.some((play) => play.cardId === cardId);
+    const requiredCharge = isCombinableAttack(cardId) && !alreadySelected ? selectedCost + card.cost : card.cost;
+    if (me.charge < requiredCharge) return true;
     if (cardId === "charge" && room.astrologyRemaining > 0) return true;
     if (cardId === "free_big_gun" && me.freeBigGuns <= 0) return true;
     if ("limit" in card && card.limit !== undefined) {
@@ -247,16 +272,21 @@ export default function App() {
   };
 
   const canSubmit = (() => {
-    if (!selectedCard || !me || submitted || room?.phase !== "selecting") return false;
-    const mode = CARD_DEFINITIONS[selectedCard].targetMode;
-    if (mode === "one-other") return targets.length === 1;
-    if (mode === "two-others") return targets.length === 2;
-    return targets.length === 0;
+    if (!selectedCard || !me || selectedPlays.length === 0 || submitted || room?.phase !== "selecting") return false;
+    if (selectedCost > me.charge) return false;
+    if (selectedPlays.length > 1 && selectedPlays.some((play) => !isCombinableAttack(play.cardId))) return false;
+    if (new Set(selectedPlays.map((play) => play.cardId)).size !== selectedPlays.length) return false;
+    return selectedPlays.every((play) => {
+      const mode = CARD_DEFINITIONS[play.cardId].targetMode;
+      if (mode === "one-other") return play.targetIds.length === 1;
+      if (mode === "two-others") return play.targetIds.length === 2 && new Set(play.targetIds).size === 2;
+      return play.targetIds.length === 0;
+    });
   })();
 
   const submit = () => {
-    if (!canSubmit || !selectedCard || !room) return;
-    send({ type: "submit", roundId: room.round, cardId: selectedCard, targetIds: targets });
+    if (!canSubmit || !room) return;
+    send({ type: "submit", roundId: room.round, plays: selectedPlays });
   };
 
   const submitRps = (choice: RpsChoice) => {
@@ -399,11 +429,11 @@ export default function App() {
             <PlayerHud player={me} color={playerColors[playerId]} />
             <section className="hand-panel">
               <div className="hand-heading">
-                <div><p className="eyebrow">你的手牌</p><h2>{submitted ? "已锁定，等待其他玩家" : selectedCard ? `已选择：${CARD_DEFINITIONS[selectedCard].name}` : "选择本回合要出的牌"}</h2></div>
+                <div><p className="eyebrow">你的手牌</p><h2>{submitted ? "已锁定，等待其他玩家" : selectedPlays.length > 1 ? `组合攻击：${selectedPlays.length}张` : selectedCard ? `已选择：${CARD_DEFINITIONS[selectedCard].name}` : "选择本回合要出的牌"}</h2></div>
                 <button className="rules-button" onClick={() => setRulesOpen(true)} aria-label="查看卡牌规则"><BookOpen size={18} /> 卡牌规则</button>
               </div>
               <div className="group-tabs">
-                {(["ALL", "B", "C", "D"] as const).map((item) => <button key={item} className={group === item ? "active" : ""} onClick={() => setGroup(item)}>{item === "ALL" ? "全部卡牌" : CARD_GROUP_LABELS[item]}</button>)}
+                {(["ALL", "A", "B", "C", "D"] as const).map((item) => <button key={item} className={group === item ? "active" : ""} onClick={() => setGroup(item)}>{item === "ALL" ? "全部卡牌" : CARD_GROUP_LABELS[item]}</button>)}
               </div>
               <div className="cards-grid">
                 {cards.map((cardId) => {
@@ -412,7 +442,7 @@ export default function App() {
                   const limit = "limit" in card ? card.limit : undefined;
                   const remaining = limit !== undefined ? me?.remainingUses[cardId as keyof typeof me.remainingUses] : undefined;
                   return (
-                    <button key={cardId} className={`game-card group-${card.group.toLowerCase()} ${selectedCard === cardId ? "selected" : ""}`} disabled={disabled} onClick={() => chooseCard(cardId)}>
+                    <button key={cardId} className={`game-card group-${card.group.toLowerCase()} ${selectedPlays.some((play) => play.cardId === cardId) ? "selected" : ""}`} disabled={disabled} onClick={() => chooseCard(cardId)}>
                       <span className="card-cost">{card.cost === 0 ? "0" : card.cost}</span>
                       <span className="card-art"><CardGlyph cardId={cardId} /></span>
                       <strong>{card.name}</strong>
@@ -426,7 +456,7 @@ export default function App() {
             </section>
 
             <div className="submit-dock">
-              <div><span>当前蓄</span><strong><Bolt size={18} /> {me?.charge ?? 0}</strong></div>
+              <div><span>当前蓄 / 本次消耗</span><strong><Bolt size={18} /> {me?.charge ?? 0} / {selectedCost}</strong></div>
               <button className="primary-button submit-button" disabled={!canSubmit} onClick={submit}>{submitted ? <><Check size={19} /> 已提交</> : <>锁定出牌 <ChevronRight size={19} /></>}</button>
             </div>
           </section>
@@ -435,13 +465,13 @@ export default function App() {
             <section className="target-picker" aria-label="选择卡牌目标">
               <div className="target-picker-title">
                 <strong>{CARD_DEFINITIONS[selectedCard].name} · 选择目标</strong>
-                <span>{CARD_DEFINITIONS[selectedCard].targetMode === "two-others" ? `${targets.length}/2` : `${targets.length}/1`}</span>
+                <span>{CARD_DEFINITIONS[selectedCard].targetMode === "two-others" ? `${selectedTargets.length}/2` : `${selectedTargets.length}/1`} · 已选{selectedPlays.length}张</span>
               </div>
               <div className="target-picker-options">
                 {otherAlivePlayers.map((player) => (
                   <button
                     key={player.id}
-                    className={targets.includes(player.id) ? "selected" : ""}
+                    className={selectedTargets.includes(player.id) ? "selected" : ""}
                     onClick={() => toggleTarget(player.id)}
                     style={{ "--player-color": playerColors[player.id] } as CSSProperties}
                   >
@@ -450,7 +480,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <button className="target-picker-cancel" onClick={() => { setSelectedCard(null); setTargets([]); }}>取消</button>
+              <button className="target-picker-cancel" onClick={removeSelectedCard}>移除此牌</button>
             </section>
           )}
 
@@ -591,24 +621,31 @@ function PlayerRelationshipBoard({
   const indexByPlayer = new Map(room.players.map((player, index) => [player.id, index]));
   const roundParticipants = new Set(boardActions.map((action) => action.playerId));
   const displayedRound = room.actionHistory.at(-1)?.round;
-  const arrows = boardActions.flatMap((action) => {
+  const rawArrows = boardActions.flatMap((action) => {
     const card = CARD_DEFINITIONS[action.cardId];
     const targetIds = card.targetMode === "all-others"
       ? room.players.filter((player) => player.id !== action.playerId && roundParticipants.has(player.id)).map((player) => player.id)
       : action.targetIds;
     return targetIds.map((targetId) => ({ action, targetId }));
   });
-  const arrowVisuals = arrows.flatMap(({ action, targetId }, arrowIndex) => {
-    const source = positionByPlayer.get(action.playerId);
+  const arrowGroups = new Map<string, { sourceId: string; targetId: string; actions: PublicRoomState["revealedActions"] }>();
+  for (const { action, targetId } of rawArrows) {
+    const key = `${action.playerId}:${targetId}`;
+    const group = arrowGroups.get(key) ?? { sourceId: action.playerId, targetId, actions: [] };
+    group.actions.push(action);
+    arrowGroups.set(key, group);
+  }
+  const arrowVisuals = [...arrowGroups.values()].flatMap(({ sourceId, targetId, actions }, arrowIndex) => {
+    const source = positionByPlayer.get(sourceId);
     const target = positionByPlayer.get(targetId);
-    const sourceIndex = indexByPlayer.get(action.playerId);
+    const sourceIndex = indexByPlayer.get(sourceId);
     if (!source || !target || sourceIndex === undefined) return [];
     return [{
-      key: `${action.playerId}-${targetId}-${arrowIndex}`,
-      action,
+      key: `${sourceId}-${targetId}-${arrowIndex}`,
+      label: actions.map((action) => CARD_DEFINITIONS[action.cardId].name).join("＋"),
       sourceIndex,
       geometry: arrowPath(source, target),
-      color: playerColors[action.playerId],
+      color: playerColors[sourceId],
     }];
   });
 
@@ -632,19 +669,20 @@ function PlayerRelationshipBoard({
           ))}
         </svg>
 
-        {arrowVisuals.map(({ key, action, geometry, color }) => (
+        {arrowVisuals.map(({ key, label, geometry, color }) => (
           <span
             className="relationship-arrow-label"
             key={`${key}-label`}
             style={{ left: `${geometry.labelX}%`, top: `${geometry.labelY}%`, color, borderColor: color } as CSSProperties}
           >
-            {CARD_DEFINITIONS[action.cardId].name}
+            {label}
           </span>
         ))}
 
         {room.players.map((player, index) => {
           const position = positions[index];
-          const action = boardActions.find((item) => item.playerId === player.id);
+          const playerActions = boardActions.filter((item) => item.playerId === player.id);
+          const action = playerActions[0];
           const card = action ? CARD_DEFINITIONS[action.cardId] : null;
           return (
             <article
@@ -661,7 +699,7 @@ function PlayerRelationshipBoard({
               {action && card && (
                 <span className="table-played-card">
                   <CardGlyph cardId={action.cardId} size={24} />
-                  <b>{card.name}</b>
+                  <b>{playerActions.length > 1 ? `组合×${playerActions.length}` : card.name}</b>
                 </span>
               )}
             </article>
@@ -746,7 +784,8 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
         <div className="rule-block"><Shield size={19} /><div><strong>防御</strong><p>小防挡不高于4点；大防挡不高于6点。飞刀、戳可破大防。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>攻击对撞</strong><p>两人互相攻击时（包括散弹、超级飞刀、反鄙视等全场攻击），大伤害压掉小伤害；伤害相同则双方攻击抵消。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>反弹</strong><p>小反反弹1—5点，飞刀和戳不能破小反；大反可反弹反鄙视。</p></div></div>
-        <div className="rule-block"><Sparkles size={19} /><div><strong>特殊状态</strong><p>抬枪本轮无敌，但会被大枪破除并受到原伤害。赞的双方本轮无敌、各得1蓄，且只有鄙视能击杀。金鸡独立只会受到散弹、劈、双劈伤害。</p></div></div>
+        <div className="rule-block"><Swords size={19} /><div><strong>组合攻击</strong><p>除劈外，指向性攻击牌可在蓄足够时组合使用；每种牌最多一张，可分别指向多个目标，也可让不同攻击牌指向同一目标。每张牌独立结算，伤害不叠加；射必须单独使用。</p></div></div>
+        <div className="rule-block"><Sparkles size={19} /><div><strong>特殊状态</strong><p>大枪命中本轮出蓄的目标时造成0点伤害。抬枪本轮无敌，但会被大枪破除并受到原伤害。赞消耗1蓄，使双方本轮无敌且仅目标获得1蓄，只有鄙视能击杀。拉每局限1次。金鸡独立只会受到散弹、劈、双劈伤害。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>射</strong><p>出牌时必须预先指定目标；若目标本轮出花则直接击杀，亮牌后不能改选。</p></div></div>
         <div className="rule-block"><Bolt size={19} /><div><strong>占星术</strong><p>使用者本轮无敌，之后5轮全场不能出蓄，但仍可通过搓、花、拉获得蓄。</p></div></div>
         <div className="rule-block"><Swords size={19} /><div><strong>鄙视猜拳</strong><p>1v1时，若鄙视目标本轮使用了需要消耗蓄的牌，双方进入猜拳。平局继续；鄙视方赢则整局平局，鄙视方输则目标获胜。</p></div></div>
@@ -755,7 +794,7 @@ function RulesDrawer({ onClose }: { onClose: () => void }) {
         <div className="rule-block"><Bot size={19} /><div><strong>匿名训练数据</strong><p>完成的对局会保存规则版本、AI版本、匿名座位、逐轮动作和胜负，用于离线训练AI；不保存昵称、重连凭证或IP。</p></div></div>
         <div className="all-card-rules">
           <p className="eyebrow">完整卡牌效果</p>
-          {(["B", "C", "D"] as const).map((cardGroup) => (
+          {(["A", "B", "C", "D"] as const).map((cardGroup) => (
             <section key={cardGroup}>
               <h3>{CARD_GROUP_LABELS[cardGroup]}</h3>
               {Object.values(CARD_DEFINITIONS).filter((card) => card.group === cardGroup).map((card) => (

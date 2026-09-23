@@ -5,12 +5,13 @@ import { fileURLToPath } from "node:url";
 import { Server, type Socket } from "socket.io";
 import { BOT_STRATEGY_VERSION, chooseBotAction, chooseHellBotAction } from "../shared/bot.js";
 import { CARD_DEFINITIONS, type CardId } from "../shared/cards.js";
-import { createFreshPlayer, resetPlayerForGame, resolveRound, validateAction } from "../shared/engine.js";
+import { createFreshPlayer, resetPlayerForGame, resolveRound, validateSubmission } from "../shared/engine.js";
 import { compareRps, deterministicRpsChoice, findRpsDuel, type RpsDuel } from "../shared/rps.js";
 import { databaseHealth, initializeDatabase, recordCompletedGame, trainingGameDiagnostics, trainingStats } from "./database.js";
 import { TRAINED_BOT_STRATEGY_VERSION, basicAiStyleLabel, chooseBasicAiAction, selectBasicAiStyle, trainedPolicyHealth } from "./trained-policy.js";
 import type {
   ClientMessage,
+  CardPlay,
   BotDifficulty,
   PublicRoomState,
   RoomMode,
@@ -47,7 +48,7 @@ function seedFromCode(code: string): number {
 class GameRoom {
   readonly code: string;
   state: RoomState;
-  private submissions = new Map<string, SubmittedAction>();
+  private submissions = new Map<string, SubmittedAction[]>();
   private rpsChoices = new Map<string, RpsChoice>();
   private timer: NodeJS.Timeout | null = null;
   private botTimer: NodeJS.Timeout | null = null;
@@ -141,7 +142,11 @@ class GameRoom {
         this.startGame(playerId);
         break;
       case "submit":
-        this.submitAction(playerId, message.roundId, message.cardId, message.targetIds);
+        this.submitActions(
+          playerId,
+          message.roundId,
+          message.plays ?? (message.cardId ? [{ cardId: message.cardId, targetIds: message.targetIds ?? [] }] : []),
+        );
         break;
       case "rpsSubmit":
         this.submitRps(playerId, message.duelId, message.choice);
@@ -200,15 +205,15 @@ class GameRoom {
     this.broadcast();
   }
 
-  private submitAction(playerId: string, roundId: number, cardId: CardId, targetIds: string[]) {
+  private submitActions(playerId: string, roundId: number, plays: CardPlay[]) {
     if (this.state.phase !== "selecting") throw new Error("当前不是出牌阶段");
     if (roundId !== this.state.round) throw new Error("回合编号已经过期");
     if (this.submissions.has(playerId)) throw new Error("本轮已经提交，不能再次修改");
-    if (!(cardId in CARD_DEFINITIONS)) throw new Error("未知卡牌");
-    const error = validateAction(this.state, playerId, cardId, targetIds);
+    if (plays.some((play) => !(play.cardId in CARD_DEFINITIONS))) throw new Error("未知卡牌");
+    const error = validateSubmission(this.state, playerId, plays);
     if (error) throw new Error(error);
 
-    this.submissions.set(playerId, { playerId, cardId, targetIds: [...new Set(targetIds)] });
+    this.submissions.set(playerId, plays.map((play) => ({ playerId, cardId: play.cardId, targetIds: [...play.targetIds] })));
     this.state.submittedPlayerIds.push(playerId);
     this.broadcast();
     if (this.submissions.size >= this.state.players.filter((player) => player.alive).length) {
@@ -221,7 +226,7 @@ class GameRoom {
   private beginReveal() {
     this.clearTimer();
     this.clearBotTimer();
-    const actions = [...this.submissions.values()];
+    const actions = [...this.submissions.values()].flat();
     this.state.revealedActions = actions.map((action) => ({ ...action }));
     const duel = findRpsDuel(this.state, actions);
     if (duel) {
@@ -312,7 +317,7 @@ class GameRoom {
     this.clearBotTimer();
     const contemptPlayerId = rps.contemptPlayerId;
     const targetPlayerId = rps.targetPlayerId;
-    this.state = resolveRound(this.state, [...this.submissions.values()]);
+    this.state = resolveRound(this.state, [...this.submissions.values()].flat());
     this.state.phase = "finished";
     this.state.deadlineAt = null;
     this.state.submittedPlayerIds = [];
@@ -359,7 +364,7 @@ class GameRoom {
   private resolveNow() {
     this.clearTimer();
     this.state.phase = "resolving";
-    this.state = resolveRound(this.state, [...this.submissions.values()]);
+    this.state = resolveRound(this.state, [...this.submissions.values()].flat());
     this.submissions.clear();
     if (this.state.phase === "finished") this.recordFinishedGame();
     if (this.state.phase === "selecting") {
@@ -401,10 +406,10 @@ class GameRoom {
     const round = this.state.round;
     const difficulty = bot.botDifficulty ?? this.botDifficulty;
     const opponent = this.state.players.find((player) => player.controller === "human" && player.alive);
-    const opponentAction = opponent ? this.submissions.get(opponent.id) : undefined;
-    if (difficulty === "hell" && !opponentAction) return;
+    const opponentActions = opponent ? this.submissions.get(opponent.id) : undefined;
+    if (difficulty === "hell" && !opponentActions) return;
     const decision = difficulty === "hell"
-      ? chooseHellBotAction(this.state, bot.id, opponentAction!)
+      ? chooseHellBotAction(this.state, bot.id, opponentActions!)
       : difficulty === "normal"
         ? { action: chooseBasicAiAction(this.state, bot.id, this.botStyle) }
         : chooseBotAction(this.state, bot.id, difficulty);
@@ -412,7 +417,7 @@ class GameRoom {
       this.botTimer = null;
       if (this.state.phase !== "selecting" || this.state.round !== round || this.submissions.has(bot.id)) return;
       try {
-        this.submitAction(bot.id, round, decision.action.cardId, decision.action.targetIds);
+        this.submitActions(bot.id, round, [{ cardId: decision.action.cardId, targetIds: decision.action.targetIds }]);
       } catch (error) {
         console.error("AI提交动作失败", error);
       }
@@ -502,22 +507,22 @@ class GameRoom {
       const hellBot = alivePlayers.find((player) => player.controller === "bot" && player.botDifficulty === "hell");
       for (const player of alivePlayers.filter((item) => item.id !== hellBot?.id)) {
         if (!this.submissions.has(player.id)) {
-          this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
+          this.submissions.set(player.id, [{ playerId: player.id, cardId: fallback, targetIds: [] }]);
           this.state.submittedPlayerIds.push(player.id);
         }
       }
       if (hellBot && !this.submissions.has(hellBot.id)) {
         const opponent = alivePlayers.find((player) => player.id !== hellBot.id);
-        const opponentAction = opponent ? this.submissions.get(opponent.id) : undefined;
-        if (opponentAction) {
-          const action = chooseHellBotAction(this.state, hellBot.id, opponentAction).action;
-          this.submissions.set(hellBot.id, action);
+        const opponentActions = opponent ? this.submissions.get(opponent.id) : undefined;
+        if (opponentActions) {
+          const action = chooseHellBotAction(this.state, hellBot.id, opponentActions).action;
+          this.submissions.set(hellBot.id, [action]);
           this.state.submittedPlayerIds.push(hellBot.id);
         }
       }
       for (const player of alivePlayers) {
         if (!this.submissions.has(player.id)) {
-          this.submissions.set(player.id, { playerId: player.id, cardId: fallback, targetIds: [] });
+          this.submissions.set(player.id, [{ playerId: player.id, cardId: fallback, targetIds: [] }]);
           this.state.submittedPlayerIds.push(player.id);
         }
       }
@@ -544,7 +549,7 @@ class GameRoom {
       players: this.state.players.map(({ reconnectToken: _token, ...player }) => player),
     };
     if (canPeek) {
-      publicState.peekedActions = [...this.submissions.values()]
+      publicState.peekedActions = [...this.submissions.values()].flat()
         .filter((action) => action.playerId !== viewerId)
         .map((action) => ({ ...action, targetIds: [...action.targetIds] }));
     }

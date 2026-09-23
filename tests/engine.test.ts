@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createFreshPlayer, resolveRound, validateAction } from "../shared/engine.js";
+import { createFreshPlayer, resolveRound, validateAction, validateSubmission } from "../shared/engine.js";
 import type { RoomState, SubmittedAction } from "../shared/types.js";
 
 function room(): RoomState {
@@ -212,7 +212,7 @@ describe("特殊规则", () => {
     expect(result.events.some((item) => item.type === "break" && item.text.includes("抬枪无敌"))).toBe(true);
   });
 
-  it("赞使双方无敌并各获得1蓄", () => {
+  it("赞消耗1蓄、使双方无敌并只给目标增加1蓄", () => {
     const result = resolve([
       { playerId: "p1", cardId: "praise", targetIds: ["p2"] },
       { playerId: "p2", cardId: "small_defense", targetIds: [] },
@@ -220,8 +220,77 @@ describe("特殊规则", () => {
     ]);
     expect(result.players.find((player) => player.id === "p1")?.alive).toBe(true);
     expect(result.players.find((player) => player.id === "p2")?.alive).toBe(true);
-    expect(result.players.find((player) => player.id === "p1")?.charge).toBe(21);
+    expect(result.players.find((player) => player.id === "p1")?.charge).toBe(19);
     expect(result.players.find((player) => player.id === "p2")?.charge).toBe(21);
+  });
+
+  it("拉每局只能使用1次", () => {
+    const result = resolve([
+      { playerId: "p1", cardId: "pull", targetIds: [] },
+      { playerId: "p2", cardId: "small_defense", targetIds: [] },
+      { playerId: "p3", cardId: "flower", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p1")?.remainingUses.pull).toBe(0);
+    expect(validateAction(result, "p1", "pull", [])).toBe("这张牌的次数已经用完");
+  });
+
+  it("不同的指向性攻击牌可以组合并分别选择目标", () => {
+    const state = room();
+    expect(validateSubmission(state, "p1", [
+      { cardId: "small_gun", targetIds: ["p2"] },
+      { cardId: "cannon", targetIds: ["p3"] },
+    ])).toBeNull();
+  });
+
+  it("组合攻击不能重复同一种牌，劈和射必须单独使用", () => {
+    const state = room();
+    expect(validateSubmission(state, "p1", [
+      { cardId: "small_gun", targetIds: ["p2"] },
+      { cardId: "small_gun", targetIds: ["p3"] },
+    ])).toContain("不能重复");
+    expect(validateSubmission(state, "p1", [
+      { cardId: "slash", targetIds: ["p2"] },
+      { cardId: "cannon", targetIds: ["p3"] },
+    ])).toContain("劈和射必须单独使用");
+    expect(validateSubmission(state, "p1", [
+      { cardId: "shoot", targetIds: ["p2"] },
+      { cardId: "small_gun", targetIds: ["p3"] },
+    ])).toContain("劈和射必须单独使用");
+  });
+
+  it("组合攻击按总费用校验蓄", () => {
+    const state = room();
+    state.players.find((player) => player.id === "p1")!.charge = 2;
+    expect(validateSubmission(state, "p1", [
+      { cardId: "small_gun", targetIds: ["p2"] },
+      { cardId: "cannon", targetIds: ["p3"] },
+    ])).toContain("共需3蓄");
+  });
+
+  it("同一目标受到戳和炮时伤害不叠加，小反分别反弹两张牌", () => {
+    const result = resolve([
+      { playerId: "p1", cardId: "stab", targetIds: ["p2"] },
+      { playerId: "p1", cardId: "cannon", targetIds: ["p2"] },
+      { playerId: "p2", cardId: "small_reflect", targetIds: [] },
+      { playerId: "p3", cardId: "small_defense", targetIds: [] },
+    ]);
+    expect(result.players.find((player) => player.id === "p2")?.alive).toBe(true);
+    expect(result.players.find((player) => player.id === "p1")?.alive).toBe(false);
+    expect(result.events.filter((item) => item.type === "reflected")).toHaveLength(2);
+  });
+
+  it("大枪和免费大枪命中蓄时造成0点伤害", () => {
+    for (const cardId of ["big_gun", "free_big_gun"] as const) {
+      const state = room();
+      state.players = state.players.slice(0, 2);
+      state.players.find((player) => player.id === "p2")!.life = 10;
+      const result = resolveRound(state, [
+        { playerId: "p1", cardId, targetIds: ["p2"] },
+        { playerId: "p2", cardId: "charge", targetIds: [] },
+      ]);
+      expect(result.players.find((player) => player.id === "p2")?.life).toBe(10);
+      expect(result.events.some((item) => item.type === "blocked" && item.text.includes("造成0点伤害"))).toBe(true);
+    }
   });
 
   it("射必须事先指定目标，并直接击杀该目标出的花", () => {

@@ -1,4 +1,4 @@
-export type CardGroup = "B" | "C" | "D";
+export type CardGroup = "A" | "B" | "C" | "D";
 export type TargetMode = "none" | "one-other" | "two-others" | "all-others";
 
 export interface CardDefinition {
@@ -19,7 +19,7 @@ export const CARD_DEFINITIONS = {
   flying_knife: { id: "flying_knife", name: "飞刀", group: "B", cost: 3, targetMode: "one-other", damage: 3, description: "造成3点伤害，可以破大防，但不能破小反。", tags: ["attack", "break-big-defense"] },
   stab: { id: "stab", name: "戳", group: "B", cost: 4, targetMode: "one-other", damage: 4, description: "造成4点伤害，可以破大防，但不能破小反。", tags: ["attack", "break-big-defense"] },
   bull: { id: "bull", name: "牛", group: "B", cost: 5, targetMode: "one-other", damage: 5, description: "对一名玩家造成5点伤害。", tags: ["attack"] },
-  big_gun: { id: "big_gun", name: "大枪", group: "B", cost: 6, targetMode: "one-other", damage: 6, description: "造成6点伤害；可破抬枪无敌，破除后仍造成原本的6点伤害。", tags: ["attack", "break-raise-gun"] },
+  big_gun: { id: "big_gun", name: "大枪", group: "B", cost: 6, targetMode: "one-other", damage: 6, description: "造成6点伤害；目标本轮出蓄时伤害为0；可破抬枪无敌，破除后仍造成原本的6点伤害。", tags: ["attack", "break-raise-gun"] },
   shotgun: { id: "shotgun", name: "散弹", group: "B", cost: 5, targetMode: "all-others", damage: 1, description: "对所有其他玩家各造成1点伤害。", tags: ["attack", "golden-rooster-hit"] },
   slash: { id: "slash", name: "劈", group: "B", cost: 7, targetMode: "one-other", damage: 7, description: "对一名玩家造成7点伤害。", tags: ["attack", "golden-rooster-hit"] },
   backhand_stab: { id: "backhand_stab", name: "反手戳", group: "B", cost: 8, targetMode: "one-other", damage: 8, description: "造成8点伤害；没有特殊破防标签。", tags: ["attack"] },
@@ -36,20 +36,20 @@ export const CARD_DEFINITIONS = {
   flower: { id: "flower", name: "花", group: "C", cost: 0, limit: 2, targetMode: "none", description: "本轮无敌并获得2蓄；被射击碎时整张牌失效。", tags: ["invincible"] },
   shoot: { id: "shoot", name: "射", group: "C", cost: 0, limit: 1, targetMode: "one-other", description: "出牌时预先指定一名玩家；若其本轮出花，则直接击杀。亮牌后不能更换目标。" },
   push: { id: "push", name: "推", group: "C", cost: 0, limit: 1, targetMode: "none", description: "本轮无敌。", tags: ["invincible"] },
-  praise: { id: "praise", name: "赞", group: "C", cost: 0, limit: 1, targetMode: "one-other", description: "本轮自己和目标无敌，只有鄙视可以击杀；双方各获得1蓄。", tags: ["invincible"] },
+  praise: { id: "praise", name: "赞", group: "A", cost: 1, limit: 1, targetMode: "one-other", description: "消耗1蓄；本轮自己和目标无敌，只有鄙视可以击杀；目标获得1蓄。", tags: ["invincible"] },
   golden_rooster: { id: "golden_rooster", name: "金鸡独立", group: "C", cost: 0, limit: 2, targetMode: "none", description: "下一轮进入金鸡独立状态，仅散弹、劈、双劈能够造成伤害。" },
 
   charge: { id: "charge", name: "蓄", group: "D", cost: 0, targetMode: "none", description: "获得1蓄。" },
-  pull: { id: "pull", name: "拉", group: "D", cost: 0, targetMode: "none", description: "检查全场其他玩家：任一人出蓄则自己生命清零（金鸡独立免疫）；无人出蓄时，每个小反提供6蓄、每个大反提供12蓄；若蓄、小反、大反均无人使用，则获得3蓄。" },
+  pull: { id: "pull", name: "拉", group: "C", cost: 0, limit: 1, targetMode: "none", description: "每局限1次。检查全场其他玩家：任一人出蓄则自己生命清零（金鸡独立免疫）；无人出蓄时，每个小反提供6蓄、每个大反提供12蓄；若蓄、小反、大反均无人使用，则获得3蓄。" },
   small_defense: { id: "small_defense", name: "小防", group: "D", cost: 0, targetMode: "none", description: "抵挡不高于4点的伤害。", tags: ["defense"] },
   contempt: { id: "contempt", name: "鄙视", group: "D", cost: 0, targetMode: "one-other", description: "清空自己生命和目标蓄；场上有赞时改为击杀所有赞的参与者。" },
 
-  free_big_gun: { id: "free_big_gun", name: "免费大枪", group: "D", cost: 0, targetMode: "one-other", damage: 6, description: "由抬枪获得，用后消耗一张；可破抬枪无敌并造成原本的6点伤害。", tags: ["attack", "derived", "break-raise-gun"] },
+  free_big_gun: { id: "free_big_gun", name: "免费大枪", group: "D", cost: 0, targetMode: "one-other", damage: 6, description: "由抬枪获得，用后消耗一张；目标本轮出蓄时伤害为0；可破抬枪无敌并造成原本的6点伤害。", tags: ["attack", "derived", "break-raise-gun"] },
 } as const satisfies Record<string, Omit<CardDefinition, "id"> & { id: string }>;
 
 export type CardId = keyof typeof CARD_DEFINITIONS;
 export type BaseCardId = Exclude<CardId, "free_big_gun">;
-export type LimitedCardId = "rub" | "flower" | "shoot" | "push" | "praise" | "golden_rooster";
+export type LimitedCardId = "rub" | "flower" | "shoot" | "push" | "praise" | "golden_rooster" | "pull";
 
 export const BASE_CARD_IDS = Object.keys(CARD_DEFINITIONS).filter(
   (id) => id !== "free_big_gun",
@@ -62,9 +62,27 @@ export const LIMITED_STARTING_USES: Record<LimitedCardId, number> = {
   push: 1,
   praise: 1,
   golden_rooster: 2,
+  pull: 1,
 };
 
+export const COMBINABLE_ATTACK_IDS = [
+  "small_gun",
+  "cannon",
+  "flying_knife",
+  "stab",
+  "bull",
+  "big_gun",
+  "backhand_stab",
+  "double_slash",
+  "free_big_gun",
+] as const satisfies readonly CardId[];
+
+export function isCombinableAttack(cardId: CardId): boolean {
+  return (COMBINABLE_ATTACK_IDS as readonly CardId[]).includes(cardId);
+}
+
 export const CARD_GROUP_LABELS: Record<CardGroup, string> = {
+  A: "消耗蓄 · 有限次",
   B: "消耗蓄 · 无限次",
   C: "无消耗 · 有限次",
   D: "无消耗 · 无限次",

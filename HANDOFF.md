@@ -39,7 +39,7 @@ npm start
 - `NODE_ENV`：生产环境设为 `production`，服务器才会托管 `dist/client`。
 - `CLIENT_ORIGIN`：前后端分离时允许的网页来源；同源部署可以不填。
 - `DATABASE_URL`：PostgreSQL 连接地址。不要提交真实地址到 Git。
-- `BASIC_AI_MODEL_PATH`：可选，覆盖基础 AI 模型路径；默认读取 `models/styled-policy-v2-10k.json`。
+- `BASIC_AI_MODEL_PATH`：可选，覆盖基础 AI 模型路径；默认读取 `models/styled-policy-v3-10k.json`。
 
 ## 3. 代码结构
 
@@ -74,7 +74,7 @@ render.yaml             Render Web Service 与 PostgreSQL Blueprint
 
 ### 基础 AI
 
-normal 难度优先使用 `models/styled-policy-v2-10k.json`。每局通过牌局种子选择均衡、进攻、防守、经济、技巧或混沌风格。局面或动作样本不足、收益优势不够显著、模型缺失或版本不匹配时，自动回退 `shared/bot.ts` 中的搜索策略。
+normal 难度优先使用 `models/styled-policy-v3-10k.json`。每局通过牌局种子选择均衡、进攻、防守、经济、技巧或混沌风格。局面或动作样本不足、收益优势不够显著、模型缺失或版本不匹配时，自动回退 `shared/bot.ts` 中的搜索策略。
 
 生产模型必须满足：
 
@@ -174,7 +174,7 @@ npm run smoke:bot
 
 - `training-data/*.jsonl` 默认被 Git 忽略，避免把大量原始回放提交到公共仓库。
 - 普通 `models/*.json` 默认忽略，只对白名单中的生产模型例外。
-- 当前生产模型为 `models/styled-policy-v2-10k.json`。
+- 当前生产模型为 `models/styled-policy-v3-10k.json`，按规则版本 `2026-09-23.1` 重新生成10,000局、100,298个决策后训练。
 - 训练可在普通本地电脑上运行，当前实现不依赖 GPU。
 - PostgreSQL 仅负责积累匿名回放，训练和评估都在本地离线执行。
 

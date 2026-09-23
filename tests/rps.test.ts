@@ -47,6 +47,11 @@ describe("鄙视猜拳", () => {
       { playerId: "p1", cardId: "contempt", targetIds: ["p2"] },
       { playerId: "p2", cardId: "charge", targetIds: [] },
     ])).toBeNull();
+    expect(findRpsDuel(state, [
+      { playerId: "p1", cardId: "contempt", targetIds: ["p2"] },
+      { playerId: "p2", cardId: "small_gun", targetIds: ["p1"] },
+      { playerId: "p2", cardId: "free_big_gun", targetIds: ["p1"] },
+    ])).toEqual({ duelId: "rps-3-p1-p2", contemptPlayerId: "p1", targetPlayerId: "p2" });
   });
 
   it("超时和AI选择可由种子完全重放", () => {
